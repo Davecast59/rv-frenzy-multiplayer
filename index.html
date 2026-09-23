@@ -379,16 +379,21 @@
     el.addEventListener("mouseleave", off);
   }
   bindBtn("b-jump","jump");
+  // Pause/unpause. In online games the other phone pauses too.
+  function setPaused(v, fromRemote) {
+    if (!game) return;
+    game.paused = !!v;
+    const pb = document.getElementById("b-pause");
+    if (pb) pb.classList.toggle("active", !!game.paused);
+    if (!fromRemote) netSend({ type: "pause", on: !!v });
+  }
   // Pause button (toggle on press, not hold)
   (() => {
     const el = document.getElementById("b-pause");
     if (!el) return;
     const togglePause = (e) => {
       e.preventDefault();
-      if (game && state === STATE.PLAY) {
-        game.paused = !game.paused;
-        el.classList.toggle("active", !!game.paused);
-      }
+      if (game && state === STATE.PLAY) setPaused(!game.paused);
     };
     el.addEventListener("touchstart", togglePause, {passive:false});
     el.addEventListener("mousedown", togglePause);
@@ -405,7 +410,7 @@
       e.preventDefault(); e.stopPropagation();
       if (typeof game !== "undefined" && game && state === STATE.PLAY) {
         wasPaused = !!game.paused;
-        game.paused = true;
+        setPaused(true);
       }
       modal.classList.add("show");
     };
@@ -413,9 +418,7 @@
       e.preventDefault(); e.stopPropagation();
       modal.classList.remove("show");
       if (typeof game !== "undefined" && game && state === STATE.PLAY) {
-        game.paused = wasPaused;
-        const pb = document.getElementById("b-pause");
-        if (pb) pb.classList.toggle("active", !!game.paused);
+        setPaused(wasPaused);
       }
     };
     btn.addEventListener("touchstart", open, {passive:false});
@@ -436,11 +439,7 @@
     else if (e.key === "w" || e.key === "W") input.wrenchDown = true;
     else if (e.key === "t" || e.key === "T") input.turboDown = true;
     else if (e.key === "p" || e.key === "P") {
-      if (game && state === STATE.PLAY) {
-        game.paused = !game.paused;
-        const el = document.getElementById("b-pause");
-        if (el) el.classList.toggle("active", !!game.paused);
-      }
+      if (game && state === STATE.PLAY) setPaused(!game.paused);
     }
   });
   window.addEventListener("keyup", (e) => {
@@ -5193,6 +5192,7 @@
   // Trigger the full RV-stomps-biker crash: reset the chase, shake the camera,
   // and spawn the wrecked-bike + rolled-biker props that linger on the grass.
   function spawnBikerCrash(g, hitX, fullPlant) {
+    netSend({ type: "stomp", crash: true });
     g.cinematic = null;
     g.foe.planting = 0;
     g.foe.gap = 700;
@@ -5675,6 +5675,7 @@
     }
     target = Math.max(0, Math.min(p.maxSpeed, target));
     p.speed += (target - p.speed) * Math.min(1, dt*3);
+    if ((p._stunT || 0) > 0) { p._stunT -= dt; p.speed = Math.min(p.speed, 0.6); }
 
     // jump — single press hops, quick double-tap launches a super-jump that clears Granny's shots
     const nowMs = performance.now();
@@ -5733,6 +5734,7 @@
           g.shake = Math.max(g.shake, 14);
           g.score = (g.score || 0) + 80;
           flashMessage(g, "STOMP!  +80  /  BIKER STUNNED");
+          netSend({ type: "stomp", crash: false });
         }
       }
     }
@@ -5755,6 +5757,7 @@
         });
         p.fireCD = 0.22;
         p._lastFireT = performance.now();
+        netSend({ type: "fire", tp: isTP });
         if (isTP) flashMessage(g, "TP ROLL!");
       } else if (input.fireDown && !grannyAvailable && p.fireCD <= 0) {
         // tell the player why nothing's coming out (with a small CD so it doesn't spam)
@@ -5767,6 +5770,7 @@
       const rvAirborne = (g.foe.y || 0) < -10;
       if (input.fireDown && g.foe.gap < 175 && !g.cinematic && !rvAirborne) {
         startPlantCinematic(g);
+        if (g.online) { g.gapBonus = (g.gapBonus || 0) + 560; netSend({ type: "plant" }); }
       } else if (input.fireDown && rvAirborne && g.foe.gap < 175 && !g.cinematic) {
         flashMessage(g, "RV'S IN THE AIR!");
       }
@@ -5782,6 +5786,7 @@
           spin: 0,
         });
         p._wrenchCD = 0.55;
+        netSend({ type: "fire", wrench: true });
       }
     }
 
@@ -5797,6 +5802,7 @@
   function updateFoe(g, dt) {
     const f = g.foe;
     f.hitFlash = Math.max(0, f.hitFlash - dt);
+    if (g.online) { updateRemoteFoe(g, dt); return; }
 
     if (g.role === "rv") {
       // AI biker chasing the player RV (gap = how far behind)
@@ -5938,6 +5944,7 @@
       b.life -= dt;
       if (b.wrench) b.spin = (b.spin || 0) + dt * 14;
       const foeX = foeWorldX(g);
+      if (g.online) continue;
       if (Math.abs(b.x - foeX) < 28 && b.life > 0) {
         // AI biker hop-dodges poop/TP rolls (only in RV mode, only ground-targeted bullets)
         if (g.role === "rv" && !b.wrench && (g.foe.y || 0) < -25) {
@@ -6015,14 +6022,17 @@
           g.bikerScore = (g.bikerScore || 0) + 30;
           damageRV(g.player, g, PLAYER_X(), H * 0.86 - 30);
           // 25% chance to bonk Granny clean off the roof
+          let grannyBonked = false;
           if (!g.player._grannyDown && !g.player._grannyFlying && Math.random() < 0.125) {
-            g.player._grannyFlying = true;
+            g.player._grannyFlying = { startT: performance.now() };
             g.player._grannyFlyT = 0;
             g.bikerScore += 60;
+            grannyBonked = true;
             flashMessage(g, "WRENCH!  GRANNY KNOCKED OFF!  BIKER +90");
           } else {
             flashMessage(g, "WRENCH HIT!  BIKER +30");
           }
+          netSend({ type: "hit", kind: "wrench", granny: grannyBonked });
         } else {
           g.player.hp -= (g.role === "rv" ? 8 : 10);
           g.player.hitFlash = 0.25;
@@ -6033,6 +6043,7 @@
             g.score = Math.max(0, (g.score || 0) - 50);
             flashMessage(g, "POOPED!  RV +100  /  BIKER -50");
           }
+          if (g.role === "biker") netSend({ type: "hit", kind: b.tp ? "tp" : "poop" });
         }
         b.life = 0;
       }
@@ -6193,6 +6204,7 @@
       g.player._grannyFlying = null;
     }
     g._grannyPickupOnRoad = false;
+    g.gapBonus = 0;
     // respawn the foe far behind / ahead
     if (g.role === "rv") {
       g.foe.gap = 700;
@@ -6495,7 +6507,12 @@
     // map shows BOTH vehicles. RV is always in front, biker behind.
     // Compute each one's distance progress (0..100%).
     let rvPct, bikerPct;
-    if (g.role === "rv") {
+    if (g.online && g.role === "biker") {
+      // online: convert back to the RV's own progress (gapBonus is a catch-up handicap)
+      const bonus = (g.gapBonus || 0) + START_GAP;
+      rvPct = Math.max(0, Math.min(100, ((g.distance + g.foe.gap - bonus) / g.goal) * 100));
+      bikerPct = Math.max(0, Math.min(100, ((g.distance - bonus) / g.goal) * 100));
+    } else if (g.role === "rv") {
       rvPct = Math.min(100, (g.distance / g.goal) * 100);
       bikerPct = Math.max(0, rvPct - (g.foe.gap / g.goal) * 100);
     } else {
@@ -6541,10 +6558,12 @@
         if (state === STATE.PLAY) {
           if (game.player.hp <= 0 || game.player.fuel <= 0) {
             state = STATE.LOSE;
+            netSend({ type: "over" });
           } else if (game.role === "rv" && game.distance >= game.goal) {
             // Reached the campground — pause for a round-break screen
             game.score += Math.round(game.player.hp * 5 + game.player.fuel * 3);
             state = STATE.ROUND_BREAK;
+            netSend({ type: "round" });
           }
         }
       }
@@ -6694,6 +6713,7 @@
       overlay.classList.remove("hidden");
       const isRv = game.role === "rv";
       let title, body;
+      const wasOnline = !!game.onlineMatch;
       if (state === STATE.WIN) {
         title = isRv ? "YOU WIN!" : "FLAG PLANTED!";
         body = isRv
@@ -6704,6 +6724,12 @@
         body = isRv
           ? "The biker jammed his flag into your ladder. Better luck on the next leg."
           : "The RV reached the campground first. The driver parks, and gets the kiss while you sit in his dust.";
+      }
+      if (wasOnline) {
+        title = state === STATE.WIN ? "YOU WIN!" : "YOU LOSE";
+        body = state === STATE.WIN
+          ? "Your opponent broke down on the road. Victory is yours!"
+          : "You ran out of " + (game.player.fuel <= 0 ? "fuel" : "health") + ". Your opponent takes this one.";
       }
       overlay.innerHTML = `
         <div class="score-board">
@@ -6725,11 +6751,15 @@
           <div class="role ${isRv?"selected":""}" data-role="rv"><div class="flag">🏕️</div><h3>RV DRIVER</h3><div class="tag">Defender</div></div>
           <div class="role ${isRv?"":"selected"}" data-role="biker"><div class="flag">🏁</div><h3>BIKER</h3><div class="tag">Attacker</div></div>
         </div>
-        <button class="start" id="start-btn">PLAY AGAIN</button>`;
+        ${wasOnline && net.socket
+          ? '<button class="start" id="rematch-btn">REMATCH</button><br><button class="start" id="start-btn" style="background:#9fd3ff;margin-top:8px;">PLAY SOLO</button>'
+          : '<button class="start" id="start-btn">PLAY AGAIN</button>'}`;
       refreshScoreboard();
       selectedRole = game.role;
       bindRoleCards();
-      document.getElementById("start-btn").onclick = startGame;
+      document.getElementById("start-btn").onclick = () => { leaveOnline(); startGame(); };
+      const rb = document.getElementById("rematch-btn");
+      if (rb) rb.onclick = () => { try { net.socket.send(JSON.stringify({ type: "rematch" })); } catch(e){} startOnlineGame(); };
     } else if (state === STATE.ROUND_BREAK) {
       overlay.classList.remove("hidden");
       const nextRound = (game.roundCount || 1) + 1;
@@ -6737,6 +6767,7 @@
       const nextScene = sceneMap[(nextRound - 1) % sceneMap.length];
       const sceneLabel = nextScene === "desert" ? "Desert" :
                          nextScene === "cornfield" ? "Indiana Corn Fields" :
+                         nextScene === "city" ? "The City (watch for zombies!)" :
                          "Open Road";
       overlay.innerHTML = `
         <div class="score-board">
@@ -6754,13 +6785,17 @@
         <h1>ROUND ${nextRound}</h1>
         <p>You pulled into the campground! Next leg: <b>${sceneLabel}</b>.</p>
         <p>Score so far: <b>${game.score.toLocaleString()}</b></p>
-        <button class="start" id="next-round-btn">START ROUND ${nextRound}</button>
+        ${(game.online && game.role === "biker")
+          ? '<p><b>Waiting for the RV driver to start the next round…</b></p>'
+          : '<button class="start" id="next-round-btn">START ROUND ' + nextRound + '</button>'}
         <p class="small">RV partially refueled and patched up. Same biker, fresh chase.</p>`;
       refreshScoreboard();
-      document.getElementById("next-round-btn").onclick = () => {
+      const nrb = document.getElementById("next-round-btn");
+      if (nrb) nrb.onclick = () => {
         overlay.classList.add("hidden");
         startNextRound(game);
         state = STATE.PLAY;
+        netSend({ type: "nextRound" });
       };
     }
 
@@ -6897,6 +6932,7 @@
       } else if (msg.type === "playerCount") {
         net.count = msg.count;
         updateLobbyRoles();
+        if (msg.count < 2) opponentLeft();
       } else if (msg.type === "startGame") {
         net.ready = true;
         startOnlineGame();
@@ -6910,6 +6946,8 @@
     });
 
     socket.addEventListener("close", () => {
+      opponentLeft();
+      if (net.socket === socket) net.socket = null;
       const statusEl = document.getElementById(isHost ? "lobby-host-status" : "lobby-join-status");
       if (!net.ready) {
         statusEl.classList.add("error");
@@ -6955,7 +6993,178 @@
     selectedRole = net.role;
     lobby.style.display = "none";
     startGame();
+    game.online = true;        // live sync with the other phone
+    game.onlineMatch = true;   // remembers this was an online match (for end screen)
+    game.remote = null;
+    game.gapBonus = 0;
+    flashMessage(game, "ONLINE MATCH — GO!");
   }
+
+  // ========================================================================
+  // ONLINE MULTIPLAYER — Phase 2: live gameplay sync.
+  // Each phone simulates its own vehicle + its own road hazards. Phones swap
+  // position/speed ~15x per second, plus events (shots, hits, plants, stomps).
+  // The player who gets hit decides whether it hit (so dodges feel fair).
+  // ========================================================================
+  const START_GAP = 340;
+
+  function netSend(obj) {
+    if (!game || !game.online || !net.socket || net.socket.readyState !== 1) return;
+    try { net.socket.send(JSON.stringify(obj)); } catch (e) {}
+  }
+
+  function opponentLeft() {
+    if (game && game.online) {
+      game.online = false;          // AI takes over the other vehicle
+      flashMessage(game, "OPPONENT LEFT — AI TAKES OVER");
+    }
+  }
+  function leaveOnline() {
+    if (net.socket) { try { net.socket.close(); } catch (e) {} net.socket = null; }
+    net.ready = false;
+    if (game) game.online = false;
+  }
+
+  // Position the other player's vehicle from their latest state packet.
+  function updateRemoteFoe(g, dt) {
+    const f = g.foe;
+    const r = g.remote;
+    f._stunT = Math.max(0, (f._stunT || 0) - dt);
+    if (!r) { f.gap = START_GAP; return; }
+    // extrapolate a little so movement stays smooth between packets
+    const age = Math.min(0.25, (performance.now() - r.t) / 1000);
+    const rd = r.d + (r.sp || 0) * 60 * age;
+    const bonus = g.gapBonus || 0;
+    const target = (g.role === "rv")
+      ? (g.distance + START_GAP + bonus - rd)
+      : (rd + START_GAP + bonus - g.distance);
+    // ease toward the target so small network jitter doesn't cause popping
+    f.gap += (Math.max(-250, Math.min(1400, target)) - f.gap) * Math.min(1, dt * 10);
+    f.y = r.y || 0;
+    f.turbo = r.tb || 0;
+    f.hp = r.hp;
+    if (g.role === "rv") {
+      g.bikerScore = r.sc || 0;
+    } else {
+      g.foeScore = r.sc || 0;
+      f._damage = r.dmg || 0;
+      if (!f._grannyFlying) f._grannyDown = !!r.gd;
+    }
+  }
+
+  // The other player fired — launch the matching projectile toward me.
+  function spawnRemoteShot(g, msg) {
+    const f = g.foe;
+    if (g.role === "rv" && msg.wrench) {
+      const dist = Math.max(70, f.gap - 60);
+      const tof  = Math.min(1.1, dist / 420);
+      const startY = -42, endY = -56, g_ = 700;
+      g.foeBullets.push({
+        x: PLAYER_X() - f.gap + 18,
+        vx: dist / tof, vy: (endY - startY - 0.5 * g_ * tof * tof) / tof, ay: g_,
+        yOff: startY, r: 6, life: tof + 0.2,
+        fromFoe: true, wrench: true, spin: 0,
+      });
+    } else if (g.role === "biker" && !msg.wrench) {
+      g.foeBullets.push({
+        x: PLAYER_X() + f.gap - 70, vx: -520, yOff: -42,
+        r: msg.tp ? 9 : 8, life: 1.6,
+        fromFoe: true, poop: !msg.tp, tp: !!msg.tp,
+      });
+      f._lastFireT = performance.now();
+    }
+  }
+
+  function handleNetMsg(msg) {
+    if (msg.type === "rematch") {
+      if (state === STATE.WIN || state === STATE.LOSE) startOnlineGame();
+      return;
+    }
+    const g = game;
+    if (!g || !g.online) return;
+    switch (msg.type) {
+      case "st":
+        g.remote = { d: msg.d, sp: msg.sp, y: msg.y, tb: msg.tb, hp: msg.hp,
+                     sc: msg.sc, dmg: msg.dmg, gd: msg.gd, t: performance.now() };
+        break;
+      case "fire":
+        if (state === STATE.PLAY) spawnRemoteShot(g, msg);
+        break;
+      case "hit":
+        // my shot connected on the other phone
+        if (g.role === "biker" && msg.kind === "wrench") {
+          g.score += msg.granny ? 90 : 30;
+          damageRV(g.foe, g, foeWorldX(g), H * 0.86 - 30);
+          if (msg.granny) g.foe._grannyFlying = { startT: performance.now() };
+          g.shake = Math.max(g.shake, 6);
+          flashMessage(g, msg.granny ? "+90 GRANNY KNOCKED OFF!" : "+30 CLANK!");
+        } else if (g.role === "rv") {
+          g.score += 100;
+          g.foe.hitFlash = 0.2;
+          if (msg.kind === "poop") g.player.hp = Math.min(100, g.player.hp + 5);
+          flashMessage(g, msg.kind === "tp" ? "+100 WRAPPED!" : "+100 HIT!");
+        }
+        break;
+      case "plant":
+        // biker planted a flag on my RV
+        if (g.role === "rv" && !g.cinematic && state === STATE.PLAY) {
+          g.gapBonus = (g.gapBonus || 0) + 560;
+          startPlantCinematic(g);
+        }
+        break;
+      case "stomp":
+        // RV landed on me
+        if (g.role === "biker") {
+          g.cinematic = null;
+          g.player._stunT = msg.crash ? 1.8 : 1.2;
+          g.player.hp -= msg.crash ? 15 : 10;
+          g.player.hitFlash = 0.3;
+          g.shake = Math.max(g.shake, msg.crash ? 22 : 14);
+          flashMessage(g, msg.crash ? "CRUSHED BY THE RV!" : "STOMPED!  DAZED…");
+        }
+        break;
+      case "pause":
+        if (state === STATE.PLAY) setPaused(msg.on, true);
+        break;
+      case "round":
+        // RV reached the campground
+        if (g.role === "biker" && state === STATE.PLAY) {
+          g.cinematic = null;
+          g.score = (g.score || 0) + Math.round((g.player.hp || 0) * 2);
+          state = STATE.ROUND_BREAK;
+        }
+        break;
+      case "nextRound":
+        if (state === STATE.ROUND_BREAK) {
+          overlay.classList.add("hidden");
+          startNextRound(g);
+          state = STATE.PLAY;
+        }
+        break;
+      case "over":
+        // the other player broke down — I win
+        if (state === STATE.PLAY || state === STATE.ROUND_BREAK) state = STATE.WIN;
+        break;
+    }
+  }
+  net.onMessage = handleNetMsg;
+
+  // Send my state ~15 times a second during an online match.
+  setInterval(() => {
+    if (!game || !game.online || state !== STATE.PLAY) return;
+    const p = game.player;
+    netSend({
+      type: "st",
+      d: game.distance,
+      sp: game.paused ? 0 : p.speed,
+      y: p.y || 0,
+      tb: p.turbo || 0,
+      hp: Math.round(p.hp),
+      sc: game.score || 0,
+      dmg: p._damage || 0,
+      gd: !!(p._grannyDown || p._grannyFlying),
+    });
+  }, 66);
 
   // ---- Lobby button wiring ----
   document.getElementById("start-online-btn").onclick = openLobby;
