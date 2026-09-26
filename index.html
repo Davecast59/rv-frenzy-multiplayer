@@ -60,7 +60,6 @@
   .btn:active,.btn.active{transform:scale(.92);background-color:rgba(255,255,255,.5);box-shadow:0 1px 2px rgba(0,0,0,.3);}
   .btn-row{display:flex;gap:6px;}
 
-  #tilt-toggle{position:absolute;top:138px;left:10px;font-size:11px;background:rgba(255,255,255,.9);color:var(--ui);border:1px solid var(--ui);padding:4px 8px;border-radius:6px;pointer-events:auto;cursor:pointer;}
 
   #ios-hint{position:fixed;top:env(safe-area-inset-top,8px);left:8px;right:8px;background:rgba(31,58,95,.95);color:#fff;border:1px solid #ffe066;border-radius:8px;padding:8px 12px;font-size:11px;line-height:1.4;z-index:1000;display:none;box-shadow:0 2px 10px rgba(0,0,0,.4);}
   #ios-hint b{color:#ffe066;}
@@ -131,6 +130,13 @@
   #obj-note h3{font-size:17px;color:#1f3a5f;margin:12px 0 4px;}
   #obj-note ul{margin:0 0 0 20px;font-size:15px;line-height:1.55;}
   #obj-note .both{margin-top:14px;padding:8px 10px;background:rgba(214,59,59,.1);border:2px dashed #d63b3b;border-radius:6px;font-size:15px;text-align:center;}
+  #obj-note .pts{margin-top:12px;border-top:2px dashed rgba(31,58,95,.35);padding-top:8px;}
+  #obj-note .pts h4{font-size:15px;color:#1f3a5f;margin:8px 0 2px;}
+  #obj-note .pts table{width:100%;border-collapse:collapse;font-size:13px;line-height:1.35;}
+  #obj-note .pts td{padding:1px 0;vertical-align:top;}
+  #obj-note .pts td.v{text-align:right;white-space:nowrap;font-weight:bold;padding-left:8px;}
+  #obj-note .pts td.v.neg{color:#c8101e;}
+  #obj-note .pts .note{font-size:11px;color:#555;margin-top:6px;text-align:center;}
   #obj-close{display:block;margin:16px auto 0;background:#ffe066;color:#1f3a5f;border:3px solid #1f3a5f;padding:10px 26px;border-radius:24px;font-weight:800;font-size:16px;cursor:pointer;font-family:-apple-system,sans-serif;}
 </style>
 </head>
@@ -164,7 +170,6 @@
 
     <div class="panel" id="score">SCORE 0</div>
 
-    <button id="tilt-toggle">Enable Tilt</button>
 
     <button id="obj-btn">OBJECTIVES</button>
     <button id="snd-btn">🔊 SOUND</button>
@@ -182,6 +187,37 @@
           <li>Plant as many flags on the RV as you can before it makes it to the Campground.</li>
         </ul>
         <div class="both">&#9981; Watch your <b>Fuel</b> level and <b>Health</b> in both modes!</div>
+        <div class="pts">
+          <h2 style="font-size:20px;margin-bottom:4px;">&#11088; POINTS</h2>
+          <h4>&#128656; RV Driver</h4>
+          <table>
+            <tr><td>Poop hits the Biker</td><td class="v">+50</td></tr>
+            <tr><td>TP roll hits the Biker</td><td class="v">+80</td></tr>
+            <tr><td>Knock the Biker out (health to zero)</td><td class="v">+500</td></tr>
+            <tr><td>Stomp the Biker (double-jump &amp; land on him)</td><td class="v">+80</td></tr>
+            <tr><td>Crush him while he's planting</td><td class="v">+200</td></tr>
+            <tr><td>Pick Granny back up</td><td class="v">+50</td></tr>
+            <tr><td>Run over a Mechanic</td><td class="v">+20</td></tr>
+            <tr><td>Reach the Campground</td><td class="v">Health&times;5 + Fuel&times;3</td></tr>
+            <tr><td>Biker plants a flag on you</td><td class="v neg">&minus;200</td></tr>
+          </table>
+          <h4>&#127949;&#65039; Biker</h4>
+          <table>
+            <tr><td>Plant a flag on the RV</td><td class="v">+100</td></tr>
+            <tr><td>Wrench hits the RV</td><td class="v">+30</td></tr>
+            <tr><td>Wrench knocks Granny off</td><td class="v">+60</td></tr>
+            <tr><td>Still riding when the RV reaches camp</td><td class="v">Health&times;2</td></tr>
+            <tr><td>Hit by Granny's poop</td><td class="v neg">&minus;50</td></tr>
+          </table>
+          <h4>&#128739;&#65039; Both</h4>
+          <table>
+            <tr><td>Jump over an animal, cactus, cone, etc.</td><td class="v">+60</td></tr>
+            <tr><td>Squish a Zombie (city)</td><td class="v">+40</td></tr>
+            <tr><td>Run over a Fuel Pump</td><td class="v">+25</td></tr>
+            <tr><td>Bowl over Grandpa's wheelchair</td><td class="v">+25</td></tr>
+          </table>
+          <div class="note">Online: every poop or TP hit on the Biker is worth +100 to the RV.</div>
+        </div>
         <button id="obj-close">GOT IT &mdash; RESUME</button>
       </div>
     </div>
@@ -225,7 +261,7 @@
           <div class="tag">Attacker. Plant the flag in the RV ladder.</div>
         </div>
       </div>
-      <p id="role-hint">Tilt forward to speed up. Jump roadside obstacles. Hit POOP — Granny on the roof returns fire from the dump hose.</p>
+      <p id="role-hint">Jump roadside obstacles. Hit POOP — Granny on the roof returns fire from the dump hose.</p>
       <p>Keyboard: ↑/↓ speed · Space jump · F fire/plant · W wrench · T turbo · P pause</p>
       <button class="start" id="start-btn">START LOCAL GAME</button>
       <button class="start" id="start-online-btn" style="background:#9fd3ff;margin-top:8px;">ONLINE MULTIPLAYER</button>
@@ -367,7 +403,7 @@
     speedAxis: 0,    // -1..+1 (down = brake, up = accelerate)
     jump: false, stop: false, turbo: false, fire: false, jacks: false, wrench: false,
     fireDown: false, jumpDown: false, jacksDown: false, wrenchDown: false,
-    tiltEnabled: false, tiltAxis: 0,
+
   };
   function bindBtn(id, key) {
     const el = document.getElementById(id);
@@ -452,29 +488,6 @@
     else if (e.key === "t" || e.key === "T") input.turboDown = false;
   });
 
-  // tilt
-  const tiltBtn = document.getElementById("tilt-toggle");
-  function onTilt(e) {
-    // beta = front/back, range ~ -180..180. Phone held upright ~ 70-90 = neutral.
-    if (e.beta == null) return;
-    const neutral = 60;       // hold phone slightly tilted toward you
-    const range = 30;         // ±30° from neutral = full axis
-    const v = (e.beta - neutral) / range;
-    input.tiltAxis = Math.max(-1, Math.min(1, v));
-    input.speedAxis = -input.tiltAxis; // tilt forward (smaller beta) = accelerate
-  }
-  tiltBtn.addEventListener("click", async () => {
-    try {
-      if (typeof DeviceOrientationEvent !== "undefined" &&
-          typeof DeviceOrientationEvent.requestPermission === "function") {
-        const r = await DeviceOrientationEvent.requestPermission();
-        if (r !== "granted") { tiltBtn.textContent = "Tilt denied"; return; }
-      }
-      window.addEventListener("deviceorientation", onTilt);
-      input.tiltEnabled = true;
-      tiltBtn.textContent = "Tilt ON";
-    } catch (e) { tiltBtn.textContent = "Tilt n/a"; }
-  });
 
   // ---------- role selection ----------
   let selectedRole = "rv"; // "rv" | "biker"
@@ -488,8 +501,8 @@
         const hint = document.getElementById("role-hint");
         if (hint) {
           hint.innerHTML = selectedRole === "rv"
-            ? "Tilt forward to speed up. Jump roadside obstacles. Hit <b>POOP</b> — Granny on the roof returns fire from the dump hose."
-            : "Tilt forward to speed up. Jump roadside obstacles, dodge Granny&rsquo;s incoming poop blasts. Throw a <b>WRENCH</b> to slow the RV down. Close the gap and hold <b>PLANT</b> to jam your flag in the RV ladder.";
+            ? "Jump roadside obstacles. Hit <b>POOP</b> — Granny on the roof returns fire from the dump hose."
+            : "Jump roadside obstacles, dodge Granny&rsquo;s incoming poop blasts. Throw a <b>WRENCH</b> to slow the RV down. Close the gap and hold <b>PLANT</b> to jam your flag in the RV ladder.";
         }
       };
     });
@@ -635,7 +648,44 @@
       win:       () => arp([523, 659, 784, 1047, 1319, 1568], 0.11, "square", 0.2),
       lose:      () => arp([523, 466, 415, 349, 262], 0.16, "triangle", 0.25),
       blip:      () => tone(660, 990, 0.1, "square", 0.12),
+      scream:    () => grannyScream(),
     };
+    // Granny's warbly old-lady scream: "AAAIIEEEEE!" — a shaky falsetto voice
+    // pushed through vowel filters, sliding up then falling as she tumbles away.
+    function grannyScream() {
+      const t = ac.currentTime, dur = 1.25;
+      const v = ac.createOscillator(); v.type = "sawtooth";
+      v.frequency.setValueAtTime(620, t);
+      v.frequency.exponentialRampToValueAtTime(1150, t + 0.18);     // shriek up
+      v.frequency.setValueAtTime(1150, t + 0.45);
+      v.frequency.exponentialRampToValueAtTime(420, t + dur);       // fading down as she flies off
+      // old-lady warble (fast, wide vibrato)
+      const vib = ac.createOscillator(); vib.frequency.value = 9;
+      const vibAmt = ac.createGain(); vibAmt.gain.value = 45;
+      vib.connect(vibAmt); vibAmt.connect(v.frequency);
+      // vowel formants: "AH" morphing to "EE"
+      const out = ac.createGain();
+      out.gain.setValueAtTime(0.0001, t);
+      out.gain.exponentialRampToValueAtTime(0.5, t + 0.05);
+      out.gain.setValueAtTime(0.5, t + 0.7);
+      out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      const formants = [[800, 2400, 1.0], [1150, 2900, 0.6], [2900, 3300, 0.35]];
+      formants.forEach(([fa, fe, amp]) => {
+        const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 9;
+        bp.frequency.setValueAtTime(fa, t);
+        bp.frequency.linearRampToValueAtTime(fe, t + 0.35);
+        const gn = ac.createGain(); gn.gain.value = amp * 2.2;
+        v.connect(bp); bp.connect(gn); gn.connect(out);
+      });
+      // a little breathy rasp
+      const src = ac.createBufferSource(); src.buffer = noiseBuf;
+      const nf = ac.createBiquadFilter(); nf.type = "bandpass"; nf.frequency.value = 2600; nf.Q.value = 2;
+      const ng = ac.createGain(); ng.gain.value = 0.06;
+      src.connect(nf); nf.connect(ng); ng.connect(out);
+      out.connect(sfxBus);
+      v.start(t); vib.start(t); src.start(t);
+      v.stop(t + dur + 0.05); vib.stop(t + dur + 0.05); src.stop(t + dur + 0.05);
+    }
     function sfx(name) {
       if (!ac || mode === 2 || !FX[name]) return;
       const now = performance.now();
@@ -650,7 +700,8 @@
       else if (/CRASH|CRUSHED|STOMP/.test(m)) sfx("crash");
       else if (/SUPER JUMP/.test(m)) sfx("superJump");
       else if (/ZOMBIE/.test(m)) sfx("squish");
-      else if (/CLANK|KNOCKED OFF/.test(m)) sfx("clank");
+      else if (/KNOCKED OFF/.test(m)) { sfx("clank"); sfx("scream"); }
+      else if (/CLANK/.test(m)) sfx("clank");
       else if (/OUCH|REAR-ENDED|POOPED|WRENCH HIT/.test(m)) sfx("hurt");
       else if (/GRANNY'S DOWN|IN THE AIR|MISSED/.test(m)) sfx("buzz");
       else if (/FUEL UP|MECHANIC|HP|GRANNY BACK|BOWLED/.test(m)) sfx("pickup");
@@ -2535,6 +2586,21 @@
       ctx.globalAlpha = 1 - u * 0.3;
       drawGranny(rv, x, y - h);
       ctx.restore();
+      // her scream follows her through the air
+      if (u < 0.85) {
+        ctx.save();
+        const sx = grannyCX + dx + 10, sy = grannyCY + dy - 48;
+        const shake = (Math.random() - 0.5) * 3;
+        ctx.globalAlpha = Math.min(1, (0.85 - u) * 4);
+        ctx.fillStyle = "#fff"; ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
+        roundRect(sx - 44, sy - 16, 88, 24, 10); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sx - 6, sy + 8); ctx.lineTo(sx - 14, sy + 18); ctx.lineTo(sx + 4, sy + 8); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#c8101e"; ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("AAIIEEEE!", sx + shake, sy + 1);
+        ctx.textAlign = "left";
+        ctx.restore();
+      }
       // stink lines + sparkle marks at the impact spot to sell the bonk
       if (u < 0.4) {
         ctx.save();
