@@ -649,6 +649,16 @@
       lose:      () => arp([523, 466, 415, 349, 262], 0.16, "triangle", 0.25),
       blip:      () => tone(660, 990, 0.1, "square", 0.12),
       scream:    () => grannyScream(),
+      // heavy wrench-on-sheet-metal CLUNK: deep thud + dull metal ring + rattle
+      clunk:     () => {
+        const t = ac.currentTime;
+        tone(130, 55, 0.28, "sine", 0.7, t);                 // body thud
+        tone(260, 180, 0.12, "square", 0.16, t);             // hard hit
+        tone(415, 400, 0.45, "triangle", 0.12, t + 0.01);    // dull panel ring
+        tone(640, 620, 0.3, "triangle", 0.06, t + 0.01);
+        noise(0.16, "bandpass", 700, 0.45, t, 0, 250);       // impact crunch
+        noise(0.08, "highpass", 3500, 0.12, t + 0.12);       // loose-part rattle
+      },
     };
     // Granny's warbly old-lady scream: "AAAIIEEEEE!" — a shaky falsetto voice
     // pushed through vowel filters, sliding up then falling as she tumbles away.
@@ -700,8 +710,8 @@
       else if (/CRASH|CRUSHED|STOMP/.test(m)) sfx("crash");
       else if (/SUPER JUMP/.test(m)) sfx("superJump");
       else if (/ZOMBIE/.test(m)) sfx("squish");
-      else if (/KNOCKED OFF/.test(m)) { sfx("clank"); sfx("scream"); }
-      else if (/CLANK/.test(m)) sfx("clank");
+      else if (/KNOCKED OFF/.test(m)) { sfx("clunk"); sfx("scream"); }
+      else if (/CLANK|WRENCH HIT/.test(m)) sfx("clunk");
       else if (/OUCH|REAR-ENDED|POOPED|WRENCH HIT/.test(m)) sfx("hurt");
       else if (/GRANNY'S DOWN|IN THE AIR|MISSED/.test(m)) sfx("buzz");
       else if (/FUEL UP|MECHANIC|HP|GRANNY BACK|BOWLED/.test(m)) sfx("pickup");
