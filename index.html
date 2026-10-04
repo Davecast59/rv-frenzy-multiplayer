@@ -194,8 +194,7 @@
             <tr><td>Poop hits the Biker</td><td class="v">+50</td></tr>
             <tr><td>TP roll hits the Biker</td><td class="v">+80</td></tr>
             <tr><td>Knock the Biker out (health to zero)</td><td class="v">+500</td></tr>
-            <tr><td>Stomp the Biker (double-jump &amp; land on him)</td><td class="v">+80</td></tr>
-            <tr><td>Crush him while he's planting</td><td class="v">+200</td></tr>
+            <tr><td>Squash the Biker flat (double-jump, he rides under, you land on him)</td><td class="v">+200</td></tr>
             <tr><td>Pick Granny back up</td><td class="v">+50</td></tr>
             <tr><td>Run over a Mechanic</td><td class="v">+20</td></tr>
             <tr><td>Reach the Campground</td><td class="v">Health&times;5 + Fuel&times;3</td></tr>
@@ -208,6 +207,7 @@
             <tr><td>Wrench knocks Granny off</td><td class="v">+60</td></tr>
             <tr><td>Still riding when the RV reaches camp</td><td class="v">Health&times;2</td></tr>
             <tr><td>Hit by Granny's poop</td><td class="v neg">&minus;50</td></tr>
+            <tr><td>Squashed flat by a landing RV (don't ride under it!)</td><td class="v neg">&minus;25 HP</td></tr>
           </table>
           <h4>&#128739;&#65039; Both</h4>
           <table>
@@ -649,6 +649,15 @@
       lose:      () => arp([523, 466, 415, 349, 262], 0.16, "triangle", 0.25),
       blip:      () => tone(660, 990, 0.1, "square", 0.12),
       scream:    () => grannyScream(),
+      // RV lands on the bike: metal crunch + tire pop + air hiss + a big boing-squish
+      squash:    () => {
+        const t = ac.currentTime;
+        noise(0.5, "lowpass", 1800, 0.6, t, 0, 90);
+        tone(120, 35, 0.5, "sawtooth", 0.35, t);
+        tone(900, 300, 0.12, "square", 0.15, t + 0.05);       // tire POP
+        noise(0.9, "highpass", 2500, 0.18, t + 0.08, 0, 6000); // air hissing out
+        tone(300, 80, 0.45, "triangle", 0.3, t + 0.1);         // cartoon squish-boing
+      },
       // heavy wrench-on-sheet-metal CLUNK: deep thud + dull metal ring + rattle
       clunk:     () => {
         const t = ac.currentTime;
@@ -706,7 +715,8 @@
     // Pick a sound from the on-screen message so every game event gets audio.
     function onMessage(msg) {
       const m = String(msg || "").toUpperCase();
-      if (/FLAG PLANTED/.test(m)) sfx("fanfare");
+      if (/SQUASHED/.test(m)) { sfx("squash"); say("OUCH!", { pitch: 0.55, rate: 0.75 }); }
+      else if (/FLAG PLANTED/.test(m)) sfx("fanfare");
       else if (/CRASH|CRUSHED|STOMP/.test(m)) sfx("crash");
       else if (/SUPER JUMP/.test(m)) sfx("superJump");
       else if (/ZOMBIE/.test(m)) sfx("squish");
@@ -780,7 +790,30 @@
       sb.addEventListener("click", (e) => { if (!e.defaultPrevented) onTap(e); });
     }
     label();
-    return { sfx, onMessage, update, unlock };
+    // Spoken line using the phone's built-in voice, pitched up for a cranky granny.
+    let voice = null;
+    function pickVoice() {
+      try {
+        const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+        voice = vs.find(v => /en[-_]US/i.test(v.lang) && /female|samantha|victoria|karen|moira|tessa|zira|susan/i.test(v.name))
+             || vs.find(v => /^en/i.test(v.lang)) || null;
+      } catch (e) { voice = null; }
+    }
+    function say(text, opts) {
+      if (mode === 2 || !window.speechSynthesis) return;
+      try {
+        if (!voice) pickVoice();
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        if (voice) u.voice = voice;
+        u.pitch = (opts && opts.pitch) || 1.9;
+        u.rate = (opts && opts.rate) || 1.15;
+        u.volume = 1;
+        speechSynthesis.speak(u);
+      } catch (e) {}
+    }
+    try { if (window.speechSynthesis) speechSynthesis.onvoiceschanged = pickVoice; } catch (e) {}
+    return { sfx, onMessage, update, unlock, say };
   })();
 
   // ---------- game state ----------
@@ -1930,20 +1963,75 @@
   }
 
   // RV sprite — cartoon Class C, fully canvas-drawn
+  
+  // Stage 14: everything's been knocked off — just the steel chassis rolling on its tires,
+  // with a pole holding up Granny's perch and the driver on a bare seat.
+  function drawBareRVFrame(x, y, w, h) {
+    const left = x - w/2 - 4, right = x + w/2 + 30;
+    // main frame rails
+    const rail = ctx.createLinearGradient(0, y - 16, 0, y - 4);
+    rail.addColorStop(0, "#5a5a5a"); rail.addColorStop(1, "#2a2a2a");
+    ctx.fillStyle = rail;
+    ctx.fillRect(left, y - 16, right - left, 5);
+    ctx.fillRect(left + 6, y - 9, right - left - 12, 4);
+    ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 0.8;
+    ctx.strokeRect(left, y - 16, right - left, 5);
+    // cross-members
+    ctx.fillStyle = "#3a3a3a";
+    for (let cx = left + 10; cx < right - 6; cx += 26) ctx.fillRect(cx, y - 16, 3, 12);
+    // rivets
+    ctx.fillStyle = "#888";
+    for (let cx = left + 4; cx < right; cx += 9) { ctx.beginPath(); ctx.arc(cx, y - 13.5, 0.8, 0, Math.PI*2); ctx.fill(); }
+    // engine block + radiator up front
+    ctx.fillStyle = "#4a4a4a"; roundRect(right - 30, y - 30, 22, 15, 2); ctx.fill();
+    ctx.strokeStyle = "#cfcfcf"; ctx.lineWidth = 0.6;
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(right - 28, y - 27 + i*3); ctx.lineTo(right - 10, y - 27 + i*3); ctx.stroke(); }
+    ctx.fillStyle = "#777"; ctx.fillRect(right - 6, y - 32, 4, 18);
+    // gas tank + exhaust pipe dangling under the frame
+    ctx.fillStyle = "#6a6a6a"; roundRect(x - 20, y - 8, 30, 7, 3); ctx.fill();
+    ctx.strokeStyle = "#555"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(right - 20, y - 6); ctx.lineTo(left + 4, y - 4); ctx.stroke();
+    // bent rib stubs where the walls used to be
+    ctx.strokeStyle = "#2a2622"; ctx.lineWidth = 2;
+    [[left + 22, 18], [left + 70, 12], [left + 118, 22], [left + 160, 9]].forEach(([sx, hh], i) => {
+      ctx.beginPath(); ctx.moveTo(sx, y - 16); ctx.lineTo(sx + (i % 2 ? 3 : -2), y - 16 - hh); ctx.stroke();
+    });
+    // Granny's perch: one wobbly pole + a scrap platform at old roof height
+    const perchY = y - h;
+    const wob = Math.sin(performance.now() / 160) * 1.2;
+    ctx.strokeStyle = "#444"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x - 60, y - 16); ctx.lineTo(x - 60 + wob, perchY + 2); ctx.stroke();
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x - 60, y - 40); ctx.lineTo(x - 82 + wob, perchY + 2); ctx.moveTo(x - 60, y - 40); ctx.lineTo(x - 38 + wob, perchY + 2); ctx.stroke();
+    ctx.fillStyle = "#7a5a3a";
+    ctx.fillRect(x - 92 + wob, perchY, 64, 3);
+    ctx.strokeStyle = "#3a2a1a"; ctx.lineWidth = 0.6; ctx.strokeRect(x - 92 + wob, perchY, 64, 3);
+    // a little smoke from the battered engine
+    const smT = performance.now() / 200;
+    ctx.fillStyle = "rgba(110,110,110,.45)";
+    for (let s = 0; s < 3; s++) {
+      ctx.beginPath(); ctx.arc(right - 18 - s * 6, y - 36 - s * 7 + Math.sin(smT + s) * 2, 3 + s, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
   function drawRV(rv, atX) {
     const baseY = H*0.86;
     const x = atX, y = baseY + (rv.y || 0);   // rv.y is jump offset (negative = up)
     const w = 190, h = 92;
     if (rv.hitFlash > 0) ctx.globalAlpha = 0.6;
-    const dmg = rv._damage || 0;
+    const dmg = Math.min(14, rv._damage || 0);
+    // Damage stages (one per wrench hit): 1 mirror, 2 bunk window, 3-5 side windows,
+    // 6 entry door, 7 awning, 8 stripe+decals, 9 roof gear, 10 baggage doors+paint,
+    // 11 cab-over bunk, 12 body skin (ribs showing), 13 cab shell, 14 BARE FRAME + tires.
+    const bare = dmg >= 14;
 
     // shadow
     ctx.fillStyle = "rgba(0,0,0,.3)";
     ctx.beginPath(); ctx.ellipse(x, baseY+19, w*0.46, 7, 0, 0, Math.PI*2); ctx.fill();
 
-    // Body — at stage 8+ the paint and skin are gone. Just a dark steel frame remains.
+    // Body — at stage 12+ the skin is gone. Just dark steel ribs remain.
     const bodyGrad = ctx.createLinearGradient(0, y-h, 0, y-30);
-    if (dmg >= 8) {
+    if (dmg >= 12) {
       bodyGrad.addColorStop(0, "#2a2622");
       bodyGrad.addColorStop(0.7, "#3a342c");
       bodyGrad.addColorStop(1, "#241e18");
@@ -1952,11 +2040,11 @@
       bodyGrad.addColorStop(0.7, "#f2eacf");
       bodyGrad.addColorStop(1, "#e8dfb6");
     }
+    if (!bare) {
     ctx.fillStyle = bodyGrad;
     roundRect(x - w/2, y - h, w, h, 9); ctx.fill();
-
-    // teal two-tone — paints the bottom third of the coach (gone at stage 8+)
-    if (dmg < 8) {
+    // teal two-tone — paints the bottom third of the coach (stripped at stage 10+)
+    if (dmg < 10) {
       ctx.save();
       // re-clip to the body rounded rect so the teal doesn't bleed past the round corners
       ctx.beginPath();
@@ -1967,9 +2055,9 @@
       tealGrad.addColorStop(1,"#5a9696");
       ctx.fillStyle = tealGrad;
       ctx.fillRect(x - w/2, y - 32, w, 32);
-      ctx.restore();
-    } else {
-      // exposed steel ribs — vertical frame supports
+    ctx.restore();
+    } else if (dmg >= 12) {
+    // exposed steel ribs — vertical frame supports
       ctx.strokeStyle = "rgba(20,16,10,.9)"; ctx.lineWidth = 2;
       for (let i = 0; i < 7; i++) {
         const sx = x - w/2 + 14 + i * 28;
@@ -2006,8 +2094,8 @@
     ctx.lineTo(x + w/2, y);
     ctx.stroke();
 
-    // single orange accent stripe at the two-tone boundary — stripped at stage 7+
-    if (dmg < 7) {
+    // single orange accent stripe at the two-tone boundary — stripped at stage 8+
+    if (dmg < 8) {
       ctx.fillStyle="#e07d3a";
       ctx.fillRect(x - w/2 + 2, y - 34, w-4, 5);
       ctx.fillStyle="#c25a1f";  // a thin lower edge for depth
@@ -2066,9 +2154,9 @@
       ctx.stroke();
     }
 
-    // baggage compartment doors below the side windows (typical Class A storage)
+    // baggage compartment doors below the side windows — ripped off at stage 10+
     const bagY = y - 28, bagH = 14;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < (dmg < 10 ? 3 : 0); i++) {
       const bx = x - w/2 + 18 + i * 36;
       const bw = 32;
       // door background — slightly darker than body
@@ -2091,8 +2179,8 @@
     ctx.fillRect(x - w/2 + 4, y - 6, w - 8, 4);
 
 
-    // model decal near the rear — stripped at stage 7+
-    if (dmg < 7) {
+    // model decal near the rear — stripped at stage 8+
+    if (dmg < 8) {
       ctx.fillStyle = "rgba(70,50,30,.7)";
       ctx.font = "bold 6px sans-serif"; ctx.textAlign = "left";
       ctx.fillText("PATHFINDER 35DS", x - w/2 + 12, y - 38);
@@ -2121,9 +2209,12 @@
       ctx.fillRect(x + w/2 - 44, y - h + 18, 2, 4);
       ctx.fillRect(x + w/2 - 44, y - h + 50, 2, 4);
     }
-    // bottom step (always there)
+    // bottom step
     ctx.fillStyle="#444";
     roundRect(x + w/2 - 46, y - 4, 22, 4, 1); ctx.fill();
+    } else {
+      drawBareRVFrame(x, y, w, h);
+    }
 
     // === CLASS C FRONT (with driver hanging out the window) ===
 
@@ -2132,6 +2223,7 @@
     const bunkRight = x + w/2 + 22;
     const bunkTop   = y - h;
     const bunkBot   = y - h + 28;
+    if (dmg < 11) {
     ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.moveTo(bunkLeft, bunkTop);
@@ -2143,8 +2235,8 @@
     ctx.closePath(); ctx.fill();
     ctx.strokeStyle = "#9c8552"; ctx.lineWidth = 2; ctx.stroke();
 
-    // orange stripe carries across the bunk — also gone at stage 7+
-    if (dmg < 7) {
+    // orange stripe carries across the bunk — also gone at stage 8+
+    if (dmg < 8) {
       ctx.fillStyle = "#e07d3a";
       ctx.fillRect(bunkLeft - 2, y - 34, bunkRight - bunkLeft + 4, 5);
       ctx.fillStyle = "#c25a1f";
@@ -2178,14 +2270,17 @@
         ctx.moveTo(bwX, bwY); ctx.lineTo(bwX + 5, bwY); ctx.lineTo(bwX + 2, bwY + 4); ctx.closePath(); ctx.fill();
         ctx.beginPath();
         ctx.moveTo(bwX + bwW, bwY); ctx.lineTo(bwX + bwW - 4, bwY); ctx.lineTo(bwX + bwW - 1, bwY + 5); ctx.closePath(); ctx.fill();
-      }
     }
-
+    }
+    } // end bunk (gone at stage 11+)
     // 2) TRUCK CAB — sits below the bunk
     const cabLeft  = x + w/2 - 10;
     const cabRight = x + w/2 + 30;
     const cabTop   = bunkBot;
     const cabBot   = y - 18;
+    const swX = cabLeft + 1, swY = cabTop + 6;
+    const swW = 16, swH = cabBot - cabTop - 16;
+    if (dmg < 13) {
     ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.moveTo(cabLeft,  cabTop);
@@ -2226,8 +2321,6 @@
     ctx.lineCap = "butt";
 
     // SIDE DOOR WINDOW on the cab — where the driver leans out
-    const swX = cabLeft + 1, swY = cabTop + 6;
-    const swW = 16, swH = cabBot - cabTop - 16;
     // open window (sky/glass color, partially rolled-down feel)
     ctx.fillStyle = "#9ec7e6";
     roundRect(swX, swY, swW, swH, 1.5); ctx.fill();
@@ -2256,9 +2349,18 @@
       ctx.fillStyle = "#9fd3ff";
       ctx.fillRect(cabLeft - 7, cabTop + 11, 4, 5);
     } else {
-      // mounting stub remains
-      ctx.fillStyle = "#5a4a36";
-      ctx.fillRect(cabLeft - 2, cabTop + 14, 2, 2);
+    // mounting stub remains
+    ctx.fillStyle = "#5a4a36";
+    ctx.fillRect(cabLeft - 2, cabTop + 14, 2, 2);
+    }
+    } else {
+      // cab shell is gone — the driver is sitting out in the open on a bare seat
+      ctx.fillStyle = "#3a2a1a";
+      roundRect(cabLeft - 4, cabBot - 6, 24, 5, 2); ctx.fill();          // seat cushion
+      roundRect(cabLeft - 6, swY + swH - 14, 5, 20, 2); ctx.fill();      // seat back
+      ctx.strokeStyle = "#333"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(cabLeft + 6, cabBot - 2); ctx.lineTo(cabLeft + 6, y - 6); ctx.stroke();   // seat post
+      ctx.beginPath(); ctx.moveTo(cabRight - 14, cabBot - 10); ctx.lineTo(cabRight - 4, y - 8); ctx.stroke(); // steering column
     }
 
     // ===== DRIVER LEANING OUT THE SIDE WINDOW (oversized cartoon head) =====
@@ -2456,8 +2558,11 @@
     // (front bumper removed)
 
     // roof rim — slight gutter line along the body roof
+    if (dmg < 12) {
     ctx.fillStyle = "#9c8552";
     ctx.fillRect(x - w/2 + 6, y - h - 1, w - 12, 1.5);
+    }
+    if (dmg < 9) {  // roof gear: vents, satellite dish, CB antenna
 
     // (roof AC unit removed)
 
@@ -2524,12 +2629,15 @@
       ctx.lineTo(x - w/2 + 5, y - h - 5 - i*2);
     }
     ctx.stroke();
+    } // end roof gear
 
-    // awning (extended)
+    // awning (extended) — torn off at stage 7+
+    if (dmg < 7) {
     ctx.fillStyle="#d63b3b";
     ctx.fillRect(x - w/2 + 16, y - h + 10, 70, 3);
     ctx.fillStyle="#fff";
     for (let s=0;s<5;s++) ctx.fillRect(x - w/2 + 16 + s*14, y - h + 10, 7, 3);
+    }
 
     // ladder (the target! — chunky for visibility)
     ctx.fillStyle="#888";
@@ -2542,6 +2650,7 @@
     ctx.fillStyle="#777";
     ctx.fillRect(x - w/2 - 14, y - h - 6, 12, 4);
 
+    if (!bare) {
     // license plate
     ctx.fillStyle="#fff";
     roundRect(x - w/2 + 4, y - 24, 26, 10, 1); ctx.fill();
@@ -2555,6 +2664,7 @@
     roundRect(x - w/2 + 4, y - 42, 8, 12, 2); ctx.fill();
     ctx.fillStyle="#ffeb6b";
     ctx.fillRect(x - w/2 + 6, y - 38, 4, 2);
+    }
 
     // mud flap
     ctx.fillStyle="#222";
@@ -2563,9 +2673,11 @@
     // (leveling jacks removed)
 
     // wheel wells (darker arches) — Class C front wheel sits under the truck cab/hood
+    if (!bare) {
     ctx.fillStyle="rgba(0,0,0,.55)";
     ctx.beginPath(); ctx.arc(x - w/2 + 38, y, 18, Math.PI, Math.PI*2); ctx.fill();
     ctx.beginPath(); ctx.arc(x + w/2 + 10, y, 18, Math.PI, Math.PI*2); ctx.fill();
+    }
 
     // wheels (with rotating spokes)
     drawWheel(x - w/2 + 38, y, 16, rv._wheelAng || 0);
@@ -2631,6 +2743,27 @@
       }
     } else if (!rv._grannyDown) {
       drawGranny(rv, x, y - h);
+      // fresh off the road and fired up — she lets the biker have it
+      const talkAge = (performance.now() - (rv._grannyTalkT || -99999)) / 1000;
+      if (talkAge < 2.4) {
+        ctx.save();
+        const pop = Math.min(1, talkAge / 0.12);                // quick pop-in
+        const fade = Math.min(1, (2.4 - talkAge) / 0.35);       // fade out at the end
+        ctx.globalAlpha = fade;
+        const bx = x - 66, by = (y - h) - 104;
+        ctx.translate(bx, by); ctx.scale(pop, pop); ctx.translate(-bx, -by);
+        const shake = Math.sin(performance.now() / 40) * 1.2;
+        ctx.fillStyle = "#fff"; ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
+        roundRect(bx - 74, by - 16, 148, 28, 12); ctx.fill(); ctx.stroke();
+        // tail pointing down at Granny's head
+        ctx.beginPath(); ctx.moveTo(bx - 4, by + 12); ctx.lineTo(bx - 2, by + 26); ctx.lineTo(bx + 10, by + 12); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#fff"; ctx.fillRect(bx - 3, by + 10, 12, 3);
+        ctx.fillStyle = "#c8101e"; ctx.font = "bold 15px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("EAT SHIT, BIKER!", bx + shake, by + 3);
+        ctx.textAlign = "left";
+        ctx.restore();
+      }
     } else {
       // empty crate where she used to sit (ammo crate stays)
       drawAmmoCrate(x, y - h);
@@ -5466,7 +5599,7 @@
   // Each wrench hit knocks one piece off the RV body. Pieces fly backward
   // as debris and the RV is rendered with progressively less body work.
   function damageRV(rv, g, hitX, hitY) {
-    rv._damage = (rv._damage || 0) + 1;
+    rv._damage = Math.min(14, (rv._damage || 0) + 1);
     g.debris = g.debris || [];
     // pick which pieces fly off based on the new damage stage
     const stage = rv._damage;
@@ -5476,9 +5609,15 @@
       stage === 3 ? ["window", "panel"] :
       stage === 4 ? ["window", "panel", "trim"] :
       stage === 5 ? ["door", "panel"] :
-      stage === 6 ? ["panel", "panel", "trim"] :
-      stage === 7 ? ["panel", "panel", "panel"] :
-      ["panel", "trim"]
+      stage === 6 ? ["door", "trim"] :
+      stage === 7 ? ["trim", "trim", "panel"] :          // awning
+      stage === 8 ? ["trim", "trim"] :                   // stripe + decals
+      stage === 9 ? ["panel", "trim", "trim"] :          // roof vents, dish, antenna
+      stage === 10 ? ["door", "door", "panel"] :         // baggage doors + paint
+      stage === 11 ? ["panel", "panel", "window"] :      // cab-over bunk
+      stage === 12 ? ["panel", "panel", "panel", "panel"] : // body skin
+      stage === 13 ? ["window", "panel", "door", "panel"] : // cab shell
+      ["panel", "panel", "panel", "trim", "trim"]       // last of the walls
     );
     for (const kind of kinds) {
       g.debris.push({
@@ -5495,8 +5634,8 @@
   }
   // Trigger the full RV-stomps-biker crash: reset the chase, shake the camera,
   // and spawn the wrecked-bike + rolled-biker props that linger on the grass.
-  function spawnBikerCrash(g, hitX, fullPlant) {
-    netSend({ type: "stomp", crash: true });
+  function spawnBikerCrash(g, hitX, fullPlant, squash) {
+    netSend({ type: "stomp", crash: true, squash: !!squash });
     g.cinematic = null;
     g.foe.planting = 0;
     g.foe.gap = 700;
@@ -5520,6 +5659,12 @@
         life: 1.4,
         kind: Math.random() < 0.5 ? "panel" : "trim",
       });
+    }
+    if (squash) {
+      // flattened biker + bike pancake, left lying on the road where the RV landed
+      g.debris.push({ x: hitX, y: H * 0.86, vx: 0, vy: 0, vrot: 0, rot: 0, life: 3.2,
+                      kind: "squashedBiker", t: 0 });
+      return;
     }
     // crashed bike — tumbles backward and lands on the road shoulder
     g.debris.push({
@@ -5553,6 +5698,14 @@
     for (const d of g.debris) {
       d.x += d.vx * dt;
       d.y += d.vy * dt;
+      if (d.kind === "squashedBiker") {
+        // stays flat on the road, scrolling away as the RV drives on
+        d.t += dt;
+        d.vx = (g.player.speed * 60) * -1;
+        d.vy = 0;
+        d.life -= dt;
+        continue;
+      }
       // big crash props (bike + rolled biker) settle on the grass shoulder
       if (d.kind === "crashedBike" || d.kind === "rolledBiker") {
         if (d.y >= grassY && !d.landed) {
@@ -5577,9 +5730,48 @@
     }
     g.debris = g.debris.filter(d => d.life > 0 && d.x > -120 && d.y < H + 80);
   }
+  // Biker + chopper flattened like a pancake (cartoon squash). amt 1 = fully flat.
+  function drawSquashedBiker(x, amt, t) {
+    const groundY = H * 0.86 + 14;
+    const sy = 1 - 0.82 * amt, sx = 1 + 0.5 * amt;
+    ctx.save();
+    ctx.translate(x, groundY); ctx.scale(sx, sy); ctx.translate(-x, -groundY);
+    drawBiker({ hitFlash: 0, _wheelAng: 0, turbo: 0 }, x, 0, "none", 0, "ride");
+    ctx.restore();
+    if (amt > 0.5) {
+      // tire tread marks across the pancake
+      ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 2;
+      for (let i = -3; i <= 3; i++) {
+        ctx.beginPath(); ctx.moveTo(x - 40 + i * 14, groundY - 8); ctx.lineTo(x - 34 + i * 14, groundY); ctx.stroke();
+      }
+      // dizzy stars
+      ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center";
+      for (let k = 0; k < 3; k++) {
+        const a = (t || 0) * 5 + k * 2.1;
+        ctx.fillStyle = k % 2 ? "#fff" : "#ffe066";
+        ctx.fillText("✦", x + 6 + Math.cos(a) * 22, groundY - 22 + Math.sin(a) * 5);
+      }
+      ctx.textAlign = "left";
+    }
+  }
   function drawDebris(g) {
     if (!g.debris) return;
     for (const d of g.debris) {
+      if (d.kind === "squashedBiker") {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, d.life * 1.5));
+        // splat squash-in during the first moment
+        drawSquashedBiker(d.x, Math.min(1, d.t / 0.08), d.t);
+        if (d.t < 1.4) {
+          ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 4;
+          ctx.font = "bold 22px sans-serif"; ctx.textAlign = "center";
+          ctx.strokeText("OUCH!!", d.x, H * 0.86 - 40 - d.t * 20);
+          ctx.fillText("OUCH!!", d.x, H * 0.86 - 40 - d.t * 20);
+          ctx.textAlign = "left";
+        }
+        ctx.restore();
+        continue;
+      }
       ctx.save();
       ctx.translate(d.x, d.y);
       ctx.rotate(d.rot);
@@ -5980,6 +6172,7 @@
     target = Math.max(0, Math.min(p.maxSpeed, target));
     p.speed += (target - p.speed) * Math.min(1, dt*3);
     if ((p._stunT || 0) > 0) { p._stunT -= dt; p.speed = Math.min(p.speed, 0.6); }
+    if ((p._squashT || 0) > 0) { p._squashT -= dt; p.speed = 0; }
 
     // jump — single press hops, quick double-tap launches a super-jump that clears Granny's shots
     const nowMs = performance.now();
@@ -6006,41 +6199,17 @@
     p.vy += 1100 * dt;
     p.y += p.vy * dt;
 
-    // MID-AIR CRASH — if RV is super-jumping and descending, and the biker rolls
-    // directly under the RV's footprint, slam him on the spot (don't wait for landing).
-    if (g.role === "rv" && p._superJump && p.vy > 0 && p.y < -30 && !p._airCrashed && g.foe.gap < 95) {
-      p._airCrashed = true;     // only one crash per super-jump
-      const planting = g.foe.gap < 110;
-      spawnBikerCrash(g, PLAYER_X() - 60, planting);
-      flashMessage(g, planting ? "CRASH!  +200  /  BIKER WIPES OUT"
-                               : "STOMPED IN MID-AIR!  +200");
-    }
-
     if (p.y > 0) {
       // Detect a super-jump landing
       const wasSuperJump = p._superJump;
       const wasFalling = p.vy > 0;
-      const alreadyCrashed = p._airCrashed;
       p.y = 0; p.vy = 0; p.onGround = true; p.jumping = false;
       p._jumpCount = 0; p._superJump = false; p._airCrashed = false;
-      // RV mode super-jump landing on the biker — only if mid-air crash hadn't fired
-      if (!alreadyCrashed && g.role === "rv" && wasSuperJump && wasFalling && g.foe.gap < 130) {
-        const planting = g.foe.gap < 110;   // biker is right on the bumper, about to plant
-        if (planting || g.cinematic) {
-          // FULL CRASH — landed right on top of him while he was setting up the plant.
-          spawnBikerCrash(g, PLAYER_X() - 60, true);
-          flashMessage(g, "CRASH!  +200  /  BIKER WIPES OUT");
-        } else {
-          // Normal stomp — just close, not planting
-          g.foe._stunT = 1.2;
-          g.foe._slowT = 1.6;
-          g.foe.gap += 80;
-          g.foe.hp = Math.max(0, g.foe.hp - 10);
-          g.shake = Math.max(g.shake, 14);
-          g.score = (g.score || 0) + 80;
-          flashMessage(g, "STOMP!  +80  /  BIKER STUNNED");
-          netSend({ type: "stomp", crash: false });
-        }
+      // RV mode: the biker rode in UNDER the airborne RV — it lands right on him. SQUASH!
+      // (RV body covers roughly gap -125 .. 130 relative to the biker.)
+      if (g.role === "rv" && wasSuperJump && wasFalling && g.foe.gap > -125 && g.foe.gap < 130) {
+        spawnBikerCrash(g, PLAYER_X() - g.foe.gap, true, true);
+        flashMessage(g, "SQUASHED FLAT!  +200");
       }
     }
 
@@ -6132,7 +6301,10 @@
       const baseCruise = 5.6 * 60 * 0.95;         // 5% slower than the prior speedy chase
       const closingPenalty = Math.max(0, (250 - f.gap)) * 0.5; // sprint when in striking distance
       f.gap += (g.player.speed * 60 - baseCruise + desire*60 - closingPenalty + slowFactor) * dt * 0.55;
-      f.gap = Math.max(95, Math.min(900, f.gap));
+      // RV is up high on a super jump? The biker guns it and rides right underneath.
+      const rvHigh = g.player._superJump && (g.player.y || 0) < -40;
+      if (rvHigh && f.gap < 380) f.gap -= 300 * dt;
+      f.gap = Math.max(rvHigh ? -60 : 95, Math.min(900, f.gap));
 
       // AI biker jump physics + dodge logic
       // y is offset from ground — negative = airborne. Apply gravity.
@@ -6207,15 +6379,24 @@
       const closingPenalty = Math.max(0, (200 - f.gap)) * 0.6; // accelerate if player too close
       const aiSpeed60 = desiredCruise + closingPenalty + slowFactor;
       f.gap += (aiSpeed60 - playerSpeed60) * dt * 0.5;
-      f.gap = Math.max(120, Math.min(1100, f.gap));
+      const rvHighAI = f._superJump && (f.y || 0) < -40;
+      f.gap = Math.max(rvHighAI ? -60 : 120, Math.min(1100, f.gap));
 
-      // AI RV jumping (rare — for visual variety; doesn't affect gameplay)
-      if (f.onGround && Math.random() < dt * 0.4) {
+      // AI RV jumping — little hops, plus a big SUPER JUMP when the biker gets close.
+      // Ride under it and you'll get squashed when it lands!
+      f._sjCD = Math.max(0, (f._sjCD || 0) - dt);
+      if (f.onGround && f.gap < 240 && f._sjCD <= 0 && Math.random() < dt * 0.6) {
+        f.vy = -760; f.onGround = false; f._superJump = true; f._sjCD = 4;
+      } else if (f.onGround && Math.random() < dt * 0.4) {
         f.vy = -360; f.onGround = false;
       }
       f.vy += 1400 * dt;
       f.y += f.vy * dt;
-      if (f.y > 0) { f.y = 0; f.vy = 0; f.onGround = true; }
+      if (f.y > 0) {
+        const landedSuper = f._superJump && f.vy > 0;
+        f.y = 0; f.vy = 0; f.onGround = true; f._superJump = false;
+        if (landedSuper && f.gap > -125 && f.gap < 130 && !g.cinematic) squashPlayerBiker(g);
+      }
 
       // AI RV's Granny FIRES poop (and the occasional TP roll) backward at the biker
       // in a straight line at chest height — biker can hop to dodge.
@@ -6429,7 +6610,9 @@
           g._grannyPickupOnRoad = false;
           g.score = (g.score || 0) + 50;
           g.shake = Math.max(g.shake, 6);
+          g.player._grannyTalkT = performance.now();
           flashMessage(g, "GRANNY BACK ON THE ROOF!  +50");
+          audio.say("Eat shit, biker!");
         }
       } else if (inRange && o.kind === "zombie" && !g.player.jumping) {
         // Run over the zombie — bonus score, small impact damage.
@@ -6475,6 +6658,18 @@
     g.obstacles = g.obstacles.filter(o => o.dist - g.distance > -200);
   }
 
+  function squashPlayerBiker(g) {
+    const p = g.player;
+    p._squashT = 1.7;
+    p._stunT = 1.7;
+    p.speed = 0;
+    p.hp -= 25;
+    p.hitFlash = 0.3;
+    g.shake = Math.max(g.shake, 24);
+    g.cinematic = null;
+    g.foeScore = (g.foeScore || 0) + 200;
+    flashMessage(g, "SQUASHED FLAT!  OUCH!!");
+  }
   function flashMessage(g, msg) { g.message = msg; g.messageT = 0.9; audio.onMessage(msg); }
 
   // ---------- plant cinematic (multi-round) ----------
@@ -6977,7 +7172,14 @@
           drawBikeOnly(cin.bikeX, 0);
           drawWalkingBiker(cin.charX, cin.charY, charHasPole, charPolePlanting, cinFlag);
         } else {
-          drawBiker(game.player, PLAYER_X(), game.player.y, bikerFlag, 0, bikerPose);
+          const sq = game.player._squashT || 0;
+          if (sq > 0) {
+            // flat for a moment, then pops back up during the last 0.35 s
+            const amt = sq > 0.35 ? 1 : sq / 0.35;
+            drawSquashedBiker(PLAYER_X(), amt, 1.7 - sq);
+          } else {
+            drawBiker(game.player, PLAYER_X(), game.player.y, bikerFlag, 0, bikerPose);
+          }
         }
       }
       for (const b of game.bullets) drawBullet(b);
@@ -7358,7 +7560,14 @@
     } else {
       g.foeScore = r.sc || 0;
       f._damage = r.dmg || 0;
-      if (!f._grannyFlying) f._grannyDown = !!r.gd;
+      if (!f._grannyFlying) {
+        const nowDown = !!r.gd;
+        if (f._grannyDown && !nowDown) {
+          f._grannyTalkT = performance.now();
+          audio.say("Eat shit, biker!");
+        }
+        f._grannyDown = nowDown;
+      }
     }
   }
 
@@ -7425,7 +7634,10 @@
         break;
       case "stomp":
         // RV landed on me
-        if (g.role === "biker") {
+        if (g.role === "biker" && msg.squash) {
+          squashPlayerBiker(g);
+          g.foeScore = (g.foeScore || 0) - 200;   // RV phone scores it; avoid double count
+        } else if (g.role === "biker") {
           g.cinematic = null;
           g.player._stunT = msg.crash ? 1.8 : 1.2;
           g.player.hp -= msg.crash ? 15 : 10;
