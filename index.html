@@ -187,6 +187,7 @@
           <li>Plant as many flags on the RV as you can before it makes it to the Campground.</li>
         </ul>
         <div class="both">&#9981; Watch your <b>Fuel</b> level and <b>Health</b> in both modes!</div>
+        <div class="both" style="border-color:#1f3a5f;background:rgba(31,58,95,.08);">&#127937; A game is <b>3 legs</b>. Each leg ends when the RV reaches camp or a vehicle breaks down. After leg 3, the highest score wins &mdash; then both scores reset to zero.</div>
         <div class="pts">
           <h2 style="font-size:20px;margin-bottom:4px;">&#11088; POINTS</h2>
           <h4>&#128656; RV Driver</h4>
@@ -776,7 +777,8 @@
       if (st !== lastState) {
         if (st === STATE.WIN) sfx("win");
         else if (st === STATE.LOSE) sfx("lose");
-        else if (st === STATE.ROUND_BREAK) sfx("fanfare");
+        else if (st === STATE.ROUND_BREAK) sfx(g && g.lastLegReason === "breakdown" ? "lose" : "fanfare");
+        else if (st === STATE.FINAL) sfx(g && g._playerWon ? "win" : "lose");
         lastState = st;
       }
     }
@@ -818,7 +820,29 @@
   })();
 
   // ---------- game state ----------
-  const STATE = { MENU:"menu", PLAY:"play", WIN:"win", LOSE:"lose", ROUND_BREAK:"round_break" };
+  const STATE = { MENU:"menu", PLAY:"play", WIN:"win", LOSE:"lose", ROUND_BREAK:"round_break", FINAL:"final" };
+  // Local games are 3 legs. Each leg ends when the RV reaches camp OR a vehicle breaks down.
+  // After the 3rd leg: final scoreboard, then both scores start back at zero.
+  const MAX_LEGS = 3;
+  const SCENES = ["default", "desert", "cornfield", "city"];
+  const SCENE_LABEL = { default: "Open Road", desert: "Desert", cornfield: "Indiana Corn Fields", city: "The City (watch for zombies!)" };
+  function sceneForLeg(g, leg) { return SCENES[((g.sceneOffset || 0) + leg - 1) % SCENES.length]; }
+  function rvScoreOf(g)    { return g.role === "rv" ? (g.score || 0) : (g.foeScore || 0); }
+  function bikerScoreOf(g) { return g.role === "rv" ? (g.bikerScore || 0) : (g.score || 0); }
+  function endLeg(g, reason) {
+    g.cinematic = null;
+    g.lastLegReason = reason;                     // "camp" | "breakdown"
+    if (reason === "camp") g.campsReached = (g.campsReached || 0) + 1;
+    g.legLog = g.legLog || [];
+    g.legLog.push(reason);
+    if ((g.roundCount || 1) >= MAX_LEGS) {
+      const rvS = rvScoreOf(g), bkS = bikerScoreOf(g);
+      g._playerWon = g.role === "rv" ? rvS >= bkS : bkS > rvS;
+      state = STATE.FINAL;
+    } else {
+      state = STATE.ROUND_BREAK;
+    }
+  }
   let state = STATE.MENU;
   let game;
   const PLAYER_X = () => W * 0.45;
@@ -6425,7 +6449,8 @@
       if (g.distance + f.gap >= g.goal && state === STATE.PLAY) {
         // Banked plants this round bonus the biker; then move on.
         g.score = (g.score || 0) + Math.round((g.player.hp || 0) * 2);
-        state = STATE.ROUND_BREAK;
+        if (g.onlineMatch) state = STATE.ROUND_BREAK;
+        else endLeg(g, "camp");
       }
     }
   }
@@ -6729,8 +6754,7 @@
       g.foe._grannyFlying = null;
     }
     // rotate the scene for variety
-    const scenes = ["default", "desert", "cornfield", "city"];
-    g.scene = scenes[(g.roundCount - 1) % scenes.length];
+    g.scene = sceneForLeg(g, g.roundCount);
     drawRoadside._items = [];
     flashMessage(g, "ROUND " + g.roundCount + " — KEEP DRIVING!");
   }
@@ -7007,10 +7031,11 @@
     document.getElementById("hp-bar").style.width = Math.max(0, Math.min(100, g.player.hp))+"%";
     // Top-center score readout — shows player score + biker score (in RV mode only)
     const scoreEl = document.getElementById("score");
+    const legTxt = g.onlineMatch ? "" : "LEG " + Math.min(MAX_LEGS, g.roundCount || 1) + "/" + MAX_LEGS + "  ·  ";
     if (g.role === "rv") {
-      scoreEl.textContent = "RV " + g.score + "  /  BIKER " + (g.bikerScore || 0);
+      scoreEl.textContent = legTxt + "RV " + g.score + "  /  BIKER " + (g.bikerScore || 0);
     } else {
-      scoreEl.textContent = "BIKER " + g.score + "  /  RV " + (g.foeScore || 0);
+      scoreEl.textContent = legTxt + "BIKER " + g.score + "  /  RV " + (g.foeScore || 0);
     }
 
     // map shows BOTH vehicles. RV is always in front, biker behind.
@@ -7066,13 +7091,21 @@
 
         if (state === STATE.PLAY) {
           if (game.player.hp <= 0 || game.player.fuel <= 0) {
-            state = STATE.LOSE;
-            netSend({ type: "over" });
+            if (game.onlineMatch) {
+              state = STATE.LOSE;
+              netSend({ type: "over" });
+            } else {
+              endLeg(game, "breakdown");          // local: this leg is over, on to the next
+            }
           } else if (game.role === "rv" && game.distance >= game.goal) {
             // Reached the campground — pause for a round-break screen
             game.score += Math.round(game.player.hp * 5 + game.player.fuel * 3);
-            state = STATE.ROUND_BREAK;
-            netSend({ type: "round" });
+            if (game.onlineMatch) {
+              state = STATE.ROUND_BREAK;
+              netSend({ type: "round" });
+            } else {
+              endLeg(game, "camp");
+            }
           }
         }
       }
@@ -7280,12 +7313,14 @@
     } else if (state === STATE.ROUND_BREAK) {
       overlay.classList.remove("hidden");
       const nextRound = (game.roundCount || 1) + 1;
-      const sceneMap = ["default", "desert", "cornfield", "city"];
-      const nextScene = sceneMap[(nextRound - 1) % sceneMap.length];
-      const sceneLabel = nextScene === "desert" ? "Desert" :
-                         nextScene === "cornfield" ? "Indiana Corn Fields" :
-                         nextScene === "city" ? "The City (watch for zombies!)" :
-                         "Open Road";
+      const nextScene = sceneForLeg(game, nextRound);
+      const sceneLabel = SCENE_LABEL[nextScene] || "Open Road";
+      const local = !game.onlineMatch;
+      const isRvP = game.role === "rv";
+      const why = game.lastLegReason === "breakdown"
+        ? (isRvP ? "Your RV broke down" : "Your bike broke down") +
+          " — out of " + (game.player.fuel <= 0 ? "fuel" : "health") + "! That leg is over."
+        : (isRvP ? "You pulled into the campground!" : "The RV made it to the campground.");
       overlay.innerHTML = `
         <div class="score-board">
           <div class="box biker">
@@ -7299,21 +7334,52 @@
             <div class="last" id="rv-last"></div>
           </div>
         </div>
-        <h1>ROUND ${nextRound}</h1>
-        <p>You pulled into the campground! Next leg: <b>${sceneLabel}</b>.</p>
-        <p>Score so far: <b>${game.score.toLocaleString()}</b></p>
+        <h1>${local ? "LEG " + nextRound + " OF " + MAX_LEGS : "ROUND " + nextRound}</h1>
+        <p>${local ? why : "You pulled into the campground!"} Next leg: <b>${sceneLabel}</b>.</p>
+        <p>RV <b>${rvScoreOf(game).toLocaleString()}</b> &nbsp;·&nbsp; Biker <b>${bikerScoreOf(game).toLocaleString()}</b></p>
         ${(game.online && game.role === "biker")
           ? '<p><b>Waiting for the RV driver to start the next round…</b></p>'
-          : '<button class="start" id="next-round-btn">START ROUND ' + nextRound + '</button>'}
+          : '<button class="start" id="next-round-btn">START ' + (local ? 'LEG ' : 'ROUND ') + nextRound + '</button>'}
         <p class="small">RV partially refueled and patched up. Same biker, fresh chase.</p>`;
       refreshScoreboard();
       const nrb = document.getElementById("next-round-btn");
       if (nrb) nrb.onclick = () => {
         overlay.classList.add("hidden");
+        const brokeDown = game.lastLegReason === "breakdown";
         startNextRound(game);
+        if (brokeDown) {
+          // towed and patched up so the next leg is playable
+          game.player.hp = Math.max(game.player.hp, 60);
+          game.player.fuel = Math.max(game.player.fuel, 60);
+        }
         state = STATE.PLAY;
         netSend({ type: "nextRound" });
       };
+    } else if (state === STATE.FINAL) {
+      // ===== 3 legs done — final scoreboard; next game starts both scores at zero =====
+      if (!game._scoreSaved) { saveScoreForRole(game.role, game.score); game._scoreSaved = true; }
+      overlay.classList.remove("hidden");
+      const rvS = rvScoreOf(game), bkS = bikerScoreOf(game);
+      const winner = rvS >= bkS ? "RV DRIVER" : "BIKER";
+      const legRows = (game.legLog || []).map((r, i) =>
+        `<div>Leg ${i + 1}: ${r === "camp" ? "🏕️ made it to camp" : "💥 broke down"}</div>`).join("");
+      overlay.innerHTML = `
+        <h1>${game._playerWon ? "YOU WIN!" : "YOU LOSE"}</h1>
+        <p><b>${winner}</b> takes the game after ${MAX_LEGS} legs.</p>
+        <div style="display:flex;gap:14px;justify-content:center;margin:10px 0;">
+          <div class="role ${rvS >= bkS ? "selected" : ""}" style="width:150px;cursor:default;"><div class="flag">🚐</div><h3>RV</h3><div style="font-size:24px;font-weight:800;">${rvS.toLocaleString()}</div></div>
+          <div class="role ${bkS > rvS ? "selected" : ""}" style="width:150px;cursor:default;"><div class="flag">🏍️</div><h3>BIKER</h3><div style="font-size:24px;font-weight:800;">${bkS.toLocaleString()}</div></div>
+        </div>
+        <div style="font-size:13px;line-height:1.6;">${legRows}</div>
+        <p class="small">Campgrounds reached: ${game.campsReached || 0} of ${MAX_LEGS}. Scores reset to zero for the next game.</p>
+        <div class="roles">
+          <div class="role ${game.role === "rv" ? "selected" : ""}" data-role="rv"><div class="flag">🏕️</div><h3>RV DRIVER</h3><div class="tag">Defender</div></div>
+          <div class="role ${game.role === "rv" ? "" : "selected"}" data-role="biker"><div class="flag">🏁</div><h3>BIKER</h3><div class="tag">Attacker</div></div>
+        </div>
+        <button class="start" id="start-btn">NEW GAME</button>`;
+      selectedRole = game.role;
+      bindRoleCards();
+      document.getElementById("start-btn").onclick = startGame;
     }
 
     requestAnimationFrame(frame);
@@ -7338,9 +7404,14 @@
   function startGame() {
     document.getElementById("overlay").classList.add("hidden");
     applyRoleUI(selectedRole);
-    game = newGame(selectedRole);
+    game = newGame(selectedRole);          // fresh game: RV and Biker scores both start at 0
+    game.sceneOffset = Math.floor(Math.random() * SCENES.length);
+    game.scene = sceneForLeg(game, 1);
+    game.campsReached = 0;
+    game.legLog = [];
     drawRoadside._items = [];   // reset scrolling scenery
     state = STATE.PLAY;
+    flashMessage(game, "LEG 1 OF " + MAX_LEGS + " — " + SCENE_LABEL[game.scene].replace(/ \(.*\)/, "").toUpperCase());
   }
   document.getElementById("start-btn").onclick = startGame;
 
@@ -7510,6 +7581,7 @@
     selectedRole = net.role;
     lobby.style.display = "none";
     startGame();
+    game.sceneOffset = 0; game.scene = "default";   // both phones use the same scene order
     game.online = true;        // live sync with the other phone
     game.onlineMatch = true;   // remembers this was an online match (for end screen)
     game.remote = null;
