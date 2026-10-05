@@ -122,7 +122,7 @@
   /* ===== Objectives note ===== */
   #obj-btn{position:absolute;top:72px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:800;letter-spacing:.05em;background:#ffe066;color:#1f3a5f;border:2px solid #1f3a5f;padding:4px 12px;border-radius:14px;pointer-events:auto;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:6;}
   #snd-btn{position:absolute;top:100px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:800;letter-spacing:.04em;background:rgba(255,255,255,.9);color:#1f3a5f;border:2px solid #1f3a5f;padding:3px 10px;border-radius:12px;pointer-events:auto;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:6;}
-  #leg-badge{top:42px;left:50%;transform:translateX(-50%);background:#ffe066;color:#1f3a5f;border:2px solid #1f3a5f;font-size:13px;letter-spacing:.05em;padding:4px 8px;}
+  #leg-badge{top:42px;left:50%;transform:translateX(-50%);background:#ffe066;color:#1f3a5f;border:2px solid #1f3a5f;font-size:11px;letter-spacing:.03em;padding:3px 8px;white-space:nowrap;}
   #obj-modal{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:50;pointer-events:auto;padding:16px;}
   #obj-modal.show{display:flex;}
   #obj-note{position:relative;background:#fff9c4;color:#2b2b2b;max-width:360px;width:100%;max-height:90%;overflow:auto;border-radius:4px;padding:22px 20px 18px;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:rotate(-1.2deg);background-image:repeating-linear-gradient(180deg,transparent 0 25px,rgba(31,58,95,.13) 25px 26px);font-family:"Marker Felt","Chalkboard SE","Comic Sans MS",-apple-system,sans-serif;}
@@ -170,7 +170,7 @@
     </div>
 
     <div class="panel" id="score">SCORE 0</div>
-    <div class="panel" id="leg-badge" style="display:none">LEG 1/3</div>
+    <div class="panel" id="leg-badge" style="display:none">BREAKDOWNS 0/3</div>
 
 
     <button id="obj-btn">OBJECTIVES</button>
@@ -189,7 +189,7 @@
           <li>Plant as many flags on the RV as you can before it makes it to the Campground.</li>
         </ul>
         <div class="both">&#9981; Watch your <b>Fuel</b> level and <b>Health</b> in both modes!</div>
-        <div class="both" style="border-color:#1f3a5f;background:rgba(31,58,95,.08);">&#127937; A game is <b>3 legs</b>. Each leg ends when the RV reaches camp or a vehicle breaks down. Reaching camp = <b>next level</b> (new scene: Open Road &rarr; Desert &rarr; Corn Fields &rarr; City). A breakdown replays the same level. After leg 3, the highest score wins &mdash; then both scores reset to zero.</div>
+        <div class="both" style="border-color:#1f3a5f;background:rgba(31,58,95,.08);">&#127937; You get <b>3 breakdowns</b> per game (out of fuel or health). Reaching camp = <b>next level</b> (new scene: Open Road &rarr; Desert &rarr; Corn Fields &rarr; City) and the game keeps going. A breakdown replays the same level. After the 3rd breakdown, the highest score wins &mdash; then both scores reset to zero.</div>
         <div class="pts">
           <h2 style="font-size:20px;margin-bottom:4px;">&#11088; POINTS</h2>
           <h4>&#128656; RV Driver</h4>
@@ -823,9 +823,11 @@
 
   // ---------- game state ----------
   const STATE = { MENU:"menu", PLAY:"play", WIN:"win", LOSE:"lose", ROUND_BREAK:"round_break", FINAL:"final" };
-  // Local games are 3 legs. Each leg ends when the RV reaches camp OR a vehicle breaks down.
-  // After the 3rd leg: final scoreboard, then both scores start back at zero.
-  const MAX_LEGS = 3;
+  // Local games give you 3 BREAKDOWNS. Reaching camp levels you up and the game keeps going;
+  // running out of fuel or health is a breakdown. After the 3rd breakdown: final scoreboard,
+  // then both scores start back at zero.
+  const MAX_BREAKDOWNS = 3;
+  const MAX_LEGS = MAX_BREAKDOWNS;   // (old name, kept so nothing else breaks)
   const SCENES = ["default", "desert", "cornfield", "city"];
   const SCENE_LABEL = { default: "Open Road", desert: "Desert", cornfield: "Indiana Corn Fields", city: "The City (watch for zombies!)" };
   function sceneForLeg(g, leg) { return SCENES[((g.sceneOffset || 0) + leg - 1) % SCENES.length]; }
@@ -849,7 +851,8 @@
     }
     g.legLog = g.legLog || [];
     g.legLog.push(reason);
-    if ((g.roundCount || 1) >= MAX_LEGS) {
+    if (reason === "breakdown") g.breakdowns = (g.breakdowns || 0) + 1;
+    if (!g.onlineMatch && (g.breakdowns || 0) >= MAX_BREAKDOWNS) {
       const rvS = rvScoreOf(g), bkS = bikerScoreOf(g);
       g._playerWon = g.role === "rv" ? rvS >= bkS : bkS > rvS;
       state = STATE.FINAL;
@@ -3399,6 +3402,10 @@
         }
         ctx.strokeStyle = "#222"; ctx.lineWidth = 0.6;
         ctx.strokeRect(fx, fy, fw, fh);
+      } else if (STATE_FLAGS[flagType]) {
+        drawStateFlag(flagType, fx, fy, fw, fh, false);
+        ctx.strokeStyle = "#222"; ctx.lineWidth = 0.6;
+        ctx.strokeRect(fx, fy, fw, fh);
       } else if (flagType === "indiana") {
         // Indiana state flag — navy with gold torch and stars
         ctx.fillStyle = "#1f3a8a";
@@ -3989,6 +3996,20 @@
         }
       }
       // outline
+      ctx.strokeStyle="#222"; ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(px2, py2); ctx.lineTo(fx, fy+2+wave); ctx.lineTo(fx+4, fy+fh+wave); ctx.lineTo(px2, fy+fh-2);
+      ctx.closePath(); ctx.stroke();
+    } else if (STATE_FLAGS[flag]) {
+      // state flag on the chopper's pole
+      const fw = 36, fh = 22;
+      const fx = px2 - fw, fy = py2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(px2, py2); ctx.lineTo(fx, fy+2+wave); ctx.lineTo(fx+4, fy+fh+wave); ctx.lineTo(px2, fy+fh-2);
+      ctx.closePath(); ctx.clip();
+      drawStateFlag(flag, fx, fy + wave * 0.5, fw, fh, true);
+      ctx.restore();
       ctx.strokeStyle="#222"; ctx.lineWidth=1;
       ctx.beginPath();
       ctx.moveTo(px2, py2); ctx.lineTo(fx, fy+2+wave); ctx.lineTo(fx+4, fy+fh+wave); ctx.lineTo(px2, fy+fh-2);
@@ -6284,7 +6305,7 @@
       const rvAirborne = (g.foe.y || 0) < -1 || g.foe._superJump;
       if (input.fireDown && g.foe.gap < 175 && !g.cinematic && !rvAirborne) {
         startPlantCinematic(g);
-        if (g.online) { g.gapBonus = (g.gapBonus || 0) + 560; netSend({ type: "plant" }); }
+        if (g.online) { g.gapBonus = (g.gapBonus || 0) + 560; netSend({ type: "plant", flag: g.foe._flagType }); }
       } else if (input.fireDown && rvAirborne && g.foe.gap < 175 && !g.cinematic) {
         flashMessage(g, "RV'S IN THE AIR!");
       }
@@ -6716,6 +6737,116 @@
   }
   function flashMessage(g, msg) { g.message = msg; g.messageT = 0.9; audio.onMessage(msg); }
 
+
+  // ========================================================================
+  // 50 STATE FLAGS — simplified cartoon versions sized for the biker's pole.
+  // Coordinates are fractions (0..1) of the flag rectangle. mirror=true when the
+  // flag flies to the LEFT of the pole (riding / planted), so the hoist stays at the pole.
+  // ========================================================================
+  const STATE_NAMES = {
+    AL:"ALABAMA",AK:"ALASKA",AZ:"ARIZONA",AR:"ARKANSAS",CA:"CALIFORNIA",CO:"COLORADO",CT:"CONNECTICUT",
+    DE:"DELAWARE",FL:"FLORIDA",GA:"GEORGIA",HI:"HAWAII",ID:"IDAHO",IL:"ILLINOIS",indiana:"INDIANA",IA:"IOWA",
+    KS:"KANSAS",KY:"KENTUCKY",LA:"LOUISIANA",ME:"MAINE",MD:"MARYLAND",MA:"MASSACHUSETTS",MI:"MICHIGAN",
+    MN:"MINNESOTA",MS:"MISSISSIPPI",MO:"MISSOURI",MT:"MONTANA",NE:"NEBRASKA",NV:"NEVADA",NH:"NEW HAMPSHIRE",
+    NJ:"NEW JERSEY",NM:"NEW MEXICO",NY:"NEW YORK",NC:"NORTH CAROLINA",ND:"NORTH DAKOTA",OH:"OHIO",OK:"OKLAHOMA",
+    OR:"OREGON",PA:"PENNSYLVANIA",RI:"RHODE ISLAND",SC:"SOUTH CAROLINA",SD:"SOUTH DAKOTA",TN:"TENNESSEE",
+    TX:"TEXAS",UT:"UTAH",VT:"VERMONT",VA:"VIRGINIA",WA:"WASHINGTON",WV:"WEST VIRGINIA",WI:"WISCONSIN",WY:"WYOMING",
+  };
+  function flagName(code) {
+    if (code === "us") return "";
+    if (code === "skull") return "PIRATE";
+    return STATE_NAMES[code] || "";
+  }
+  const FC = { navy:"#1b2a6b", blue:"#2147a0", sky:"#5fa8e0", gold:"#f2c230", red:"#c8102e", white:"#ffffff",
+               buff:"#e8c88a", green:"#1f6b3a", brown:"#6b4a2a", black:"#151515" };
+  function drawStateFlag(code, x, y, w, h, mirror) {
+    const d = STATE_FLAGS[code]; if (!d) return;
+    const X = (fx) => x + (mirror ? 1 - fx : fx) * w;
+    const Y = (fy) => y + fy * h;
+    const f = {
+      R(col, rx, ry, rw, rh) { ctx.fillStyle = col; const x0 = mirror ? 1 - rx - rw : rx; ctx.fillRect(x + x0 * w, Y(ry), rw * w, rh * h); },
+      C(col, cx, cy, r) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(cx), Y(cy), Math.max(0.6, r * h), 0, Math.PI * 2); ctx.fill(); },
+      S(col, cx, cy, r) {
+        ctx.fillStyle = col; ctx.beginPath();
+        const R1 = Math.max(0.8, r * h), R2 = R1 * 0.45, px = X(cx), py = Y(cy);
+        for (let i = 0; i < 10; i++) {
+          const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? R2 : R1;
+          i ? ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr) : ctx.moveTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr);
+        }
+        ctx.closePath(); ctx.fill();
+      },
+      P(col, pts) { ctx.fillStyle = col; ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(X(px), Y(py)) : ctx.moveTo(X(px), Y(py))); ctx.closePath(); ctx.fill(); },
+      L(col, lw, pts) { ctx.strokeStyle = col; ctx.lineWidth = Math.max(0.6, lw * h); ctx.lineCap = "round"; ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(X(px), Y(py)) : ctx.moveTo(X(px), Y(py))); ctx.stroke(); ctx.lineCap = "butt"; },
+      T(str, col, cx, cy, size) { ctx.fillStyle = col; ctx.font = "bold " + Math.max(3, size * h) + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(str, X(cx), Y(cy)); ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; },
+      seal(bg, ring, inner, abbr, abbrCol) { f.R(bg, 0, 0, 1, 1); f.C(ring, .5, .5, .34); f.C(inner, .5, .5, .28); f.T(abbr, abbrCol, .5, .52, .3); },
+      ring13(col, cx, cy, r) { for (let i = 0; i < 13; i++) { const a = i / 13 * Math.PI * 2; f.C(col, cx + Math.cos(a) * r * h / w, cy + Math.sin(a) * r, .035); } },
+    };
+    ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip(); d(f); ctx.restore();
+  }
+  const STATE_FLAGS = {
+    AL: f => { f.R(FC.white,0,0,1,1); f.L(FC.red,.16,[[0,0],[1,1]]); f.L(FC.red,.16,[[1,0],[0,1]]); },
+    AK: f => { f.R(FC.navy,0,0,1,1); f.S(FC.gold,.8,.22,.13); [[.12,.78],[.22,.72],[.32,.76],[.42,.7],[.5,.52],[.62,.48],[.6,.66]].forEach(([a,b]) => f.S(FC.gold,a,b,.07)); },
+    AZ: f => { f.R(FC.gold,0,0,1,.5); [[0,.12],[.27,.4],[.6,.73],[.88,1]].forEach(([a,b]) => f.P(FC.red,[[.5,.5],[a,0],[b,0]])); f.P(FC.red,[[.5,.5],[0,.2],[0,.4]]); f.P(FC.red,[[.5,.5],[1,.2],[1,.4]]); f.R(FC.blue,0,.5,1,.5); f.S("#c87533",.5,.5,.22); },
+    AR: f => { f.R(FC.red,0,0,1,1); f.P(FC.white,[[.5,.08],[.86,.5],[.5,.92],[.14,.5]]); f.P(FC.blue,[[.5,.15],[.79,.5],[.5,.85],[.21,.5]]); f.P(FC.white,[[.5,.22],[.72,.5],[.5,.78],[.28,.5]]); f.T("ARKANSAS",FC.red,.5,.5,.13); },
+    CA: f => { f.R(FC.white,0,0,1,1); f.R(FC.red,0,.82,1,.18); f.S(FC.red,.12,.16,.11); f.P(FC.brown,[[.24,.66],[.3,.45],[.46,.38],[.66,.4],[.76,.5],[.78,.62],[.7,.62],[.68,.72],[.6,.66],[.42,.66],[.36,.74],[.3,.66]]); f.R("#5a8a3a",.2,.74,.62,.04); },
+    CO: f => { f.R(FC.blue,0,0,1,1); f.R(FC.white,0,1/3,1,1/3); f.C(FC.red,.42,.5,.3); f.P(FC.white,[[.42,.5],[.8,.36],[.8,.64]]); f.C(FC.gold,.42,.5,.15); },
+    CT: f => { f.R(FC.blue,0,0,1,1); f.P(FC.white,[[.36,.18],[.64,.18],[.64,.55],[.5,.78],[.36,.55]]); [[.45,.32],[.55,.32],[.5,.48]].forEach(([a,b]) => f.C("#6b2d7a",a,b,.06)); f.R(FC.white,.3,.8,.4,.1); },
+    DE: f => { f.R("#5b84c4",0,0,1,1); f.P(FC.buff,[[.5,.12],[.8,.5],[.5,.88],[.2,.5]]); f.T("DE",FC.navy,.5,.52,.24); f.T("1787",FC.gold,.5,.92,.12); },
+    FL: f => { f.R(FC.white,0,0,1,1); f.L(FC.red,.14,[[0,0],[1,1]]); f.L(FC.red,.14,[[1,0],[0,1]]); f.C(FC.gold,.5,.5,.2); f.C("#7ec6e8",.5,.5,.16); f.R(FC.green,.48,.4,.04,.2); },
+    GA: f => { f.R(FC.red,0,0,1,1/3); f.R(FC.white,0,1/3,1,1/3); f.R(FC.red,0,2/3,1,1/3); f.R(FC.navy,0,0,.4,2/3); f.C(FC.gold,.2,.33,.14); f.ring13(FC.white,.2,.33,.24); },
+    HI: f => { const cols=[FC.white,FC.red,FC.navy]; for (let i=0;i<8;i++) f.R(cols[i%3],0,i/8,1,1/8); f.R(FC.navy,0,0,.45,.5); f.L(FC.white,.08,[[0,0],[.45,.5]]); f.L(FC.white,.08,[[.45,0],[0,.5]]); f.L(FC.red,.03,[[0,0],[.45,.5]]); f.L(FC.red,.03,[[.45,0],[0,.5]]); f.R(FC.white,.18,0,.09,.5); f.R(FC.white,0,.19,.45,.12); f.R(FC.red,.2,0,.05,.5); f.R(FC.red,0,.215,.45,.07); },
+    ID: f => { f.seal(FC.blue,FC.gold,"#f5f0dc","ID",FC.navy); f.R(FC.red,.3,.84,.4,.1); },
+    IL: f => { f.R(FC.white,0,0,1,1); f.P(FC.brown,[[.28,.3],[.5,.5],[.72,.3],[.64,.6],[.36,.6]]); f.C(FC.white,.5,.3,.07); f.C(FC.brown,.5,.32,.06); f.T("ILLINOIS",FC.blue,.5,.85,.17); },
+    indiana: f => { f.R(FC.navy,0,0,1,1); f.L(FC.gold,.06,[[.5,.45],[.5,.75]]); f.C(FC.gold,.5,.38,.08); f.S(FC.gold,.5,.13,.08); f.ring13(FC.gold,.5,.52,.36); },
+    IA: f => { f.R(FC.blue,0,0,1/3,1); f.R(FC.white,1/3,0,1/3,1); f.R(FC.red,2/3,0,1/3,1); f.P(FC.blue,[[.38,.38],[.5,.5],[.62,.38],[.56,.58],[.44,.58]]); f.T("IOWA",FC.red,.5,.75,.17); },
+    KS: f => { f.R(FC.blue,0,0,1,1); f.C(FC.gold,.5,.12,.08); f.C(FC.gold,.5,.44,.26); f.C(FC.sky,.5,.44,.21); f.R(FC.green,.36,.5,.28,.08); f.T("KANSAS",FC.gold,.5,.86,.18); },
+    KY: f => { f.seal(FC.navy,FC.white,FC.navy,"KY",FC.white); },
+    LA: f => { f.R(FC.blue,0,0,1,1); f.P(FC.white,[[.33,.56],[.44,.36],[.56,.36],[.64,.46],[.66,.56],[.56,.62],[.4,.62]]); f.P(FC.white,[[.44,.36],[.42,.26],[.5,.24],[.52,.34]]); f.P(FC.gold,[[.5,.24],[.6,.27],[.52,.3]]); f.R(FC.white,.3,.78,.4,.1); },
+    ME: f => { f.seal(FC.blue,FC.gold,"#f5f0dc","ME",FC.navy); f.S(FC.gold,.5,.1,.08); },
+    MD: f => { [[0,0],[.5,.5]].forEach(([qx,qy]) => { for (let i=0;i<6;i++) f.R(i%2?FC.black:FC.gold,qx+i*(.5/6),qy,.5/6,.5); f.P(FC.gold,[[qx,qy+.5],[qx+.5,qy],[qx+.5,qy+.12],[qx+.08,qy+.5]]); });
+                [[.5,0],[0,.5]].forEach(([qx,qy]) => { f.R(FC.white,qx,qy,.5,.5); f.R(FC.red,qx+.2,qy,.1,.5); f.R(FC.red,qx,qy+.2,.5,.1); }); },
+    MA: f => { f.R(FC.white,0,0,1,1); f.P(FC.blue,[[.36,.2],[.64,.2],[.64,.55],[.5,.78],[.36,.55]]); f.R(FC.gold,.48,.32,.04,.3); f.S(FC.white,.42,.3,.05); },
+    MI: f => { f.seal(FC.navy,FC.gold,FC.sky,"MI",FC.navy); },
+    MN: f => { f.R(FC.sky,0,0,1,1); f.P(FC.navy,[[0,0],[.38,0],[.5,.5],[.38,1],[0,1]]); f.S(FC.white,.22,.5,.17); },
+    MS: f => { f.R(FC.red,0,0,1,1); f.R(FC.gold,.24,0,.03,1); f.R(FC.gold,.73,0,.03,1); f.R(FC.navy,.27,0,.46,1); f.C(FC.white,.5,.5,.18); f.C(FC.gold,.5,.5,.06); f.ring13(FC.gold,.5,.5,.32); },
+    MO: f => { f.R(FC.red,0,0,1,1); f.R(FC.white,0,0,1,2/3); f.R(FC.blue,0,0,1,1/3); f.C(FC.blue,.5,.5,.24); f.C(FC.white,.5,.5,.2); f.T("MO",FC.navy,.5,.52,.2); },
+    MT: f => { f.R(FC.blue,0,0,1,1); f.C(FC.gold,.5,.55,.26); f.C(FC.sky,.5,.55,.21); f.P(FC.green,[[.33,.66],[.45,.48],[.55,.58],[.62,.5],[.67,.66]]); f.T("MONTANA",FC.gold,.5,.14,.16); },
+    NE: f => { f.R(FC.blue,0,0,1,1); f.C(FC.gold,.5,.5,.3); f.C(FC.blue,.5,.5,.25); f.T("NE",FC.gold,.5,.52,.24); },
+    NV: f => { f.R("#1f4fa8",0,0,1,1); f.S("#dddddd",.16,.2,.12); f.T("NEVADA",FC.gold,.17,.42,.11); f.L(FC.gold,.03,[[.04,.24],[.1,.36],[.22,.36],[.28,.24]]); },
+    NH: f => { f.seal(FC.blue,FC.gold,FC.sky,"NH",FC.navy); f.P(FC.brown,[[.36,.62],[.64,.62],[.6,.7],[.4,.7]]); },
+    NJ: f => { f.seal(FC.buff,FC.blue,FC.buff,"NJ",FC.blue); },
+    NM: f => { f.R("#ffd100",0,0,1,1); f.C(FC.red,.5,.5,.13); f.C("#ffd100",.5,.5,.07);
+               [-.09,-.03,.03,.09].forEach(o => { f.L(FC.red,.05,[[.5+o*.6,.32],[.5+o*.6,.1]]); f.L(FC.red,.05,[[.5+o*.6,.68],[.5+o*.6,.9]]); f.L(FC.red,.05,[[.39,.5+o],[.24,.5+o]]); f.L(FC.red,.05,[[.61,.5+o],[.76,.5+o]]); }); },
+    NY: f => { f.seal(FC.navy,FC.gold,FC.sky,"NY",FC.navy); },
+    NC: f => { f.R(FC.red,0,0,1,.5); f.R(FC.white,0,.5,1,.5); f.R(FC.blue,0,0,1/3,1); f.S(FC.white,.165,.5,.1); f.T("N",FC.gold,.06,.5,.15); f.T("C",FC.gold,.27,.5,.15); },
+    ND: f => { f.R(FC.navy,0,0,1,1); f.P(FC.brown,[[.24,.28],[.5,.55],[.76,.28],[.66,.62],[.34,.62]]); f.C(FC.white,.5,.32,.07); f.R(FC.red,.3,.72,.4,.08); f.T("ND",FC.gold,.5,.88,.16); },
+    OH: f => { for (let i=0;i<5;i++) f.R(i%2?FC.white:FC.red,0,i/5,1,1/5); f.P(FC.navy,[[0,0],[.52,.5],[0,1]]); f.C(FC.white,.17,.5,.1); f.C(FC.red,.17,.5,.06); f.ring13(FC.white,.17,.5,.22); },
+    OK: f => { f.R("#5aa9d6",0,0,1,1); f.C("#c8a165",.5,.46,.27); f.L("#6b4a2a",.04,[[.3,.46],[.7,.46]]); f.L(FC.white,.03,[[.38,.36],[.62,.56]]); f.T("OKLAHOMA",FC.white,.5,.88,.15); },
+    OR: f => { f.R(FC.navy,0,0,1,1); f.C(FC.gold,.5,.5,.22); f.C(FC.navy,.5,.5,.17); f.C(FC.gold,.5,.5,.08); f.T("STATE OF OREGON",FC.gold,.5,.12,.11); f.T("1859",FC.gold,.5,.88,.12); },
+    PA: f => { f.R(FC.navy,0,0,1,1); f.C(FC.gold,.5,.5,.24); f.R(FC.black,.22,.34,.1,.32); f.R(FC.black,.68,.34,.1,.32); f.T("PA",FC.navy,.5,.52,.2); },
+    RI: f => { f.R(FC.white,0,0,1,1); f.L(FC.gold,.06,[[.5,.28],[.5,.68]]); f.L(FC.gold,.06,[[.38,.58],[.42,.68],[.5,.71],[.58,.68],[.62,.58]]); f.R(FC.gold,.43,.33,.14,.05); f.ring13(FC.gold,.5,.5,.38); f.T("HOPE",FC.blue,.5,.9,.13); },
+    SC: f => { f.R("#1f3c88",0,0,1,1); f.R(FC.white,.48,.4,.04,.46); f.P(FC.white,[[.5,.42],[.34,.32],[.5,.34],[.66,.32]]); f.P(FC.white,[[.5,.38],[.4,.18],[.5,.26],[.6,.18]]); f.C(FC.white,.16,.2,.1); f.C("#1f3c88",.18,.17,.09); },
+    SD: f => { f.R(FC.sky,0,0,1,1); f.S(FC.gold,.5,.5,.38); f.C(FC.gold,.5,.5,.27); f.C(FC.white,.5,.5,.21); f.T("SD",FC.navy,.5,.52,.2); f.T("SOUTH DAKOTA",FC.gold,.5,.1,.1); },
+    TN: f => { f.R(FC.red,0,0,1,1); f.R(FC.white,.89,0,.02,1); f.R(FC.blue,.91,0,.09,1); f.C(FC.white,.45,.5,.27); f.C(FC.blue,.45,.5,.23); f.S(FC.white,.45,.36,.08); f.S(FC.white,.37,.6,.08); f.S(FC.white,.53,.6,.08); },
+    TX: f => { f.R(FC.white,0,0,1,.5); f.R(FC.red,0,.5,1,.5); f.R(FC.navy,0,0,1/3,1); f.S(FC.white,.165,.5,.16); },
+    UT: f => { f.R("#0b3c80",0,0,1,.36); f.R(FC.white,0,.36,1,.28); f.R("#b5232f",0,.64,1,.36); f.P("#0b3c80",[[.5,.24],[.62,.37],[.62,.63],[.5,.76],[.38,.63],[.38,.37]]); f.C(FC.gold,.5,.46,.09); f.R(FC.gold,.45,.5,.1,.1); },
+    VT: f => { f.R(FC.navy,0,0,1,1); f.C(FC.white,.5,.48,.28); f.C(FC.sky,.5,.48,.24); f.P(FC.green,[[.3,.62],[.42,.52],[.5,.56],[.6,.5],[.7,.62],[.7,.7],[.3,.7]]); f.R(FC.green,.49,.28,.03,.3); f.T("VERMONT",FC.gold,.5,.9,.13); },
+    VA: f => { f.seal(FC.navy,FC.white,"#2d5a9e","VA",FC.white); },
+    WA: f => { f.R(FC.green,0,0,1,1); f.C(FC.gold,.5,.5,.32); f.C(FC.green,.5,.5,.26); f.C(FC.brown,.5,.5,.13); f.C("#f0c8a0",.5,.47,.07); },
+    WV: f => { f.R(FC.navy,0,0,1,1); f.R(FC.white,.05,.08,.9,.84); f.C(FC.green,.5,.5,.26); f.C(FC.white,.5,.5,.21); f.T("WV",FC.navy,.5,.52,.2); },
+    WI: f => { f.R(FC.navy,0,0,1,1); f.C(FC.gold,.5,.5,.24); f.C(FC.navy,.5,.5,.2); f.T("WI",FC.gold,.5,.52,.18); f.T("WISCONSIN",FC.white,.5,.12,.12); f.T("1848",FC.white,.5,.9,.12); },
+    WY: f => { f.R(FC.red,0,0,1,1); f.R(FC.white,.04,.06,.92,.88); f.R(FC.blue,.08,.12,.84,.76); f.P(FC.white,[[.3,.64],[.31,.42],[.45,.34],[.63,.36],[.73,.46],[.73,.64],[.66,.64],[.65,.56],[.4,.56],[.38,.64]]); f.C(FC.navy,.5,.48,.05); },
+  };
+  // US first, then the pirate flag, then all 50 states in a shuffled order (new order every game)
+  function flagCycle(g) {
+    if (!g._flagCycle) {
+      const st = Object.keys(STATE_FLAGS);
+      for (let i = st.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [st[i], st[j]] = [st[j], st[i]]; }
+      g._flagCycle = ["us", "skull", ...st];
+    }
+    return g._flagCycle;
+  }
+
   // ---------- plant cinematic (multi-round) ----------
   // 1) impact: biker collides with RV
   // 2) jump_on_rv: biker character launches off bike up onto RV roof near ladder
@@ -6783,7 +6914,7 @@
     // Land on top of the rear-back of the RV near the ladder
     const ladderTopX = targetRvX - 95;
     const ladderTopY = -92;          // RV roof height (relative to baseY)
-    const flagBeingPlanted = (g.role === "rv") ? (g.foe._flagType || "us") : "us";
+    const flagBeingPlanted = g.foe._flagType || "us";
     g.cinematic = {
       phase: "jump_on_rv", t: 0,
       bikeX: bikeWorldX,
@@ -6794,11 +6925,8 @@
       plantingFlag: flagBeingPlanted,
     };
     g.shake = 8;
-    const plantMsg =
-      flagBeingPlanted === "us"      ? "FLAG PLANTED!" :
-      flagBeingPlanted === "skull"   ? "PIRATE FLAG PLANTED!" :
-      flagBeingPlanted === "indiana" ? "INDIANA FLAG PLANTED!" :
-                                       "FLAG PLANTED!";
+    const nm = flagName(flagBeingPlanted);
+    const plantMsg = nm ? nm + " FLAG PLANTED!" : "FLAG PLANTED!";
     flashMessage(g, plantMsg);
   }
   function updateCinematic(g, dt) {
@@ -6864,9 +6992,8 @@
           g.bikerScore = (g.bikerScore || 0) + 100;
           g.score = Math.max(0, g.score - 200);
           // cycle through the three flag types
-          const cycle = ["us", "skull", "indiana"];
-          const idx = (g.plantCount - 1) % cycle.length;
-          g.foe._flagType = cycle[idx % cycle.length];
+          const cycle = flagCycle(g);
+          g.foe._flagType = cycle[(g.plantCount || 0) % cycle.length];
           g.foe.gap = 700;
           g.foe.hp = 100;
           g.foe.attackCD = 1.5;
@@ -6877,11 +7004,9 @@
           // Biker mode plant — score points and keep chasing.
           // Round only changes when the RV reaches the campground.
           g.score = (g.score || 0) + 100;
-          g.plantCount = (g.plantCount || 0) + 1;
-          // cycle the next flag color for variety
-          const cycle = ["us", "skull", "indiana"];
-          const idx = g.plantCount % cycle.length;
-          g.foe._flagType = cycle[idx];
+          // next flag: US → pirate → all 50 states
+          const cycle = flagCycle(g);
+          g.foe._flagType = cycle[(g.plantCount || 0) % cycle.length];
           // bump gap so the biker has to catch back up to the RV
           g.foe.gap = 700;
           g.foe.hp = 100;
@@ -6952,6 +7077,18 @@
       ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(px2, py2); ctx.lineTo(fx, fy+2+wave); ctx.lineTo(fx+4, fy+fh+wave); ctx.lineTo(px2, fy+fh-2);
+      ctx.closePath(); ctx.stroke();
+    } else if (STATE_FLAGS[flagType]) {
+      // one of the 50 state flags, waving on the ladder pole
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(px2, py2); ctx.lineTo(fx, fy + 2 + wave); ctx.lineTo(fx + 4, fy + fh + wave); ctx.lineTo(px2, fy + fh - 2);
+      ctx.closePath(); ctx.clip();
+      drawStateFlag(flagType, fx, fy + wave * 0.5, fw, fh, true);
+      ctx.restore();
+      ctx.strokeStyle = "#222"; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px2, py2); ctx.lineTo(fx, fy + 2 + wave); ctx.lineTo(fx + 4, fy + fh + wave); ctx.lineTo(px2, fy + fh - 2);
       ctx.closePath(); ctx.stroke();
     } else if (flagType === "indiana") {
       // Indiana state flag — navy blue with gold torch and 19 stars
@@ -7050,13 +7187,13 @@
     } else {
       scoreEl.textContent = "BIKER " + g.score + "  /  RV " + (g.foeScore || 0);
     }
-    // separate "LEG 2/3" badge sitting just under the score bar (local games only)
+    // separate "BREAKDOWNS 1/3 · LEVEL 2" badge just under the score bar (local games only)
     const legEl = document.getElementById("leg-badge");
     if (legEl) {
       if (g.onlineMatch) legEl.style.display = "none";
       else {
         legEl.style.display = "";
-        legEl.textContent = "LEG " + Math.min(MAX_LEGS, g.roundCount || 1) + "/" + MAX_LEGS + "  ·  LEVEL " + (g.level || 1);
+        legEl.textContent = "BREAKDOWNS " + (g.breakdowns || 0) + "/" + MAX_BREAKDOWNS + "  ·  LEVEL " + (g.level || 1);
       }
     }
 
@@ -7356,12 +7493,14 @@
             <div class="last" id="rv-last"></div>
           </div>
         </div>
-        <h1>${local ? "LEG " + nextRound + " OF " + MAX_LEGS : "ROUND " + nextRound}</h1>
+        <h1>${local
+          ? (game.lastLegReason === "breakdown" ? "BREAKDOWN " + (game.breakdowns || 0) + " OF " + MAX_BREAKDOWNS : "LEVEL " + (game.level || 1))
+          : "ROUND " + nextRound}</h1>
         <p>${local ? why + " <b>LEVEL " + (game.level || 1) + " — " + sceneLabel + "</b>." : "You pulled into the campground! Next leg: <b>" + sceneLabel + "</b>."}</p>
         <p>Score so far: <b>${game.score.toLocaleString()}</b></p>
         ${(game.online && game.role === "biker")
           ? '<p><b>Waiting for the RV driver to start the next round…</b></p>'
-          : '<button class="start" id="next-round-btn">START ' + (local ? 'LEG ' : 'ROUND ') + nextRound + '</button>'}
+          : '<button class="start" id="next-round-btn">' + (local ? (game.lastLegReason === "breakdown" ? "TRY AGAIN" : "KEEP DRIVING") : "START ROUND " + nextRound) + '</button>'}
         <p class="small">RV partially refueled and patched up. Same biker, fresh chase.</p>`;
       refreshScoreboard();
       const nrb = document.getElementById("next-round-btn");
@@ -7397,7 +7536,8 @@
           </div>
         </div>
         <h1>${game._playerWon ? "YOU WIN!" : "YOU LOSE"}</h1>
-        <p><b>LEG ${MAX_LEGS}/${MAX_LEGS}</b> complete &mdash; <b>${winner}</b> takes the game.</p>
+        <p><b>BREAKDOWNS ${MAX_BREAKDOWNS}/${MAX_BREAKDOWNS}</b> &mdash; game over. <b>${winner}</b> takes the game.</p>
+        <p>Campgrounds reached: <b>${game.campsReached || 0}</b></p>
         <p>RV ${rvS.toLocaleString()} &nbsp;/&nbsp; BIKER ${bkS.toLocaleString()}</p>
         <p>Final score: <b>${game.score.toLocaleString()}</b></p>
         <div class="roles">
@@ -7439,6 +7579,7 @@
     game.scene = sceneForLevel(game.level);
     game.campsReached = 0;
     game.legLog = [];
+    game.breakdowns = 0;
     drawRoadside._items = [];   // reset scrolling scenery
     state = STATE.PLAY;
     flashMessage(game, "LEVEL " + game.level + " — " + levelName(game.level).toUpperCase());
@@ -7736,6 +7877,7 @@
         // biker planted a flag on my RV
         if (g.role === "rv" && !g.cinematic && state === STATE.PLAY) {
           g.gapBonus = (g.gapBonus || 0) + 560;
+          if (msg.flag) g.foe._flagType = msg.flag;
           startPlantCinematic(g);
         }
         break;
