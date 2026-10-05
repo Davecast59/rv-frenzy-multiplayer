@@ -6242,7 +6242,7 @@
     } else {
       // biker mode: PLANT button — instant plant if in range (no hold timer)
       // Cannot plant while the AI RV is airborne (jumping over you).
-      const rvAirborne = (g.foe.y || 0) < -10;
+      const rvAirborne = (g.foe.y || 0) < -1 || g.foe._superJump;
       if (input.fireDown && g.foe.gap < 175 && !g.cinematic && !rvAirborne) {
         startPlantCinematic(g);
         if (g.online) { g.gapBonus = (g.gapBonus || 0) + 560; netSend({ type: "plant" }); }
@@ -6364,7 +6364,9 @@
       // touching the back of the RV (~5 px gap from the rear bumper).
       // RV body half-width is 95, so a 5-px touch = total gap of 100.
       // Also: cannot plant while the player RV is airborne — biker can't reach the ladder.
-      const rvAirborne = (g.player.y || 0) < -10;
+      // (no planting while the RV is anywhere in the air — a biker under a super-jumping RV
+      //  gets squashed instead)
+      const rvAirborne = (g.player.y || 0) < -1 || g.player._superJump || !g.player.onGround;
       if (f.gap < 100 && !g.cinematic && !rvAirborne) {
         startPlantCinematic(g);
       }
