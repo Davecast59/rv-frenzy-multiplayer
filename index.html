@@ -193,12 +193,13 @@
           <table>
             <tr><td>Poop hits the Biker</td><td class="v">+50</td></tr>
             <tr><td>TP roll hits the Biker</td><td class="v">+80</td></tr>
-            <tr><td>Knock the Biker out (health to zero)</td><td class="v">+500</td></tr>
+            <tr><td>Knock the Biker out (health to zero)</td><td class="v">+100</td></tr>
             <tr><td>Squash the Biker flat (double-jump, he rides under, you land on him)</td><td class="v">+200</td></tr>
             <tr><td>Pick Granny back up</td><td class="v">+50</td></tr>
             <tr><td>Run over a Mechanic</td><td class="v">+20</td></tr>
             <tr><td>Reach the Campground</td><td class="v">Health&times;5 + Fuel&times;3</td></tr>
             <tr><td>Biker plants a flag on you</td><td class="v neg">&minus;200</td></tr>
+            <tr><td>Biker's wrench knocks Granny off</td><td class="v neg">&minus;100</td></tr>
           </table>
           <h4>&#127949;&#65039; Biker</h4>
           <table>
@@ -6454,8 +6455,9 @@
           if (!g.foe._grannyDown && !g.foe._grannyFlying && g.foe.gap < 200 && Math.random() < 0.15) {
             g.foe._grannyFlying = { startT: performance.now() };  // start the flip animation
             g.score += 60;
+            g.foeScore = Math.max(0, (g.foeScore || 0) - 100);   // RV penalty for losing Granny
             g.shake = Math.max(g.shake, 12);
-            flashMessage(g, "+60 GRANNY KNOCKED OFF!");
+            flashMessage(g, "+60 GRANNY KNOCKED OFF!  RV -100");
           } else {
             g.score += 30;
             flashMessage(g, "+30 CLANK!");
@@ -6478,7 +6480,7 @@
           } else {
             flashMessage(g, b.tp ? "+80 WRAPPED!" : "+50 HIT!");
           }
-          if (g.foe.hp <= 0) { g.score += 500; g.foe.hp = 100; g.foe.gap += 220; flashMessage(g, "+500 BIKER DOWN"); }
+          if (g.foe.hp <= 0) { g.score += 100; g.foe.hp = 100; g.foe.gap += 220; flashMessage(g, "+100 BIKER DOWN"); }
         }
       }
     }
@@ -6519,8 +6521,9 @@
             g.player._grannyFlying = { startT: performance.now() };
             g.player._grannyFlyT = 0;
             g.bikerScore += 60;
+            g.score = Math.max(0, (g.score || 0) - 100);   // RV penalty for losing Granny
             grannyBonked = true;
-            flashMessage(g, "WRENCH!  GRANNY KNOCKED OFF!  BIKER +90");
+            flashMessage(g, "GRANNY KNOCKED OFF!  RV -100");
           } else {
             flashMessage(g, "WRENCH HIT!  BIKER +30");
           }
@@ -7619,7 +7622,7 @@
           damageRV(g.foe, g, foeWorldX(g), H * 0.86 - 30);
           if (msg.granny) g.foe._grannyFlying = { startT: performance.now() };
           g.shake = Math.max(g.shake, 6);
-          flashMessage(g, msg.granny ? "+90 GRANNY KNOCKED OFF!" : "+30 CLANK!");
+          flashMessage(g, msg.granny ? "+90 GRANNY KNOCKED OFF!  RV -100" : "+30 CLANK!");
         } else if (g.role === "rv") {
           g.score += 100;
           g.foe.hitFlash = 0.2;
