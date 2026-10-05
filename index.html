@@ -120,8 +120,9 @@
   .lobby-role .what{font-size:14px;font-weight:800;color:#fff;margin-top:2px;}
 
   /* ===== Objectives note ===== */
-  #obj-btn{position:absolute;top:44px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:800;letter-spacing:.05em;background:#ffe066;color:#1f3a5f;border:2px solid #1f3a5f;padding:4px 12px;border-radius:14px;pointer-events:auto;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:6;}
-  #snd-btn{position:absolute;top:72px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:800;letter-spacing:.04em;background:rgba(255,255,255,.9);color:#1f3a5f;border:2px solid #1f3a5f;padding:3px 10px;border-radius:12px;pointer-events:auto;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:6;}
+  #obj-btn{position:absolute;top:72px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:800;letter-spacing:.05em;background:#ffe066;color:#1f3a5f;border:2px solid #1f3a5f;padding:4px 12px;border-radius:14px;pointer-events:auto;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:6;}
+  #snd-btn{position:absolute;top:100px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:800;letter-spacing:.04em;background:rgba(255,255,255,.9);color:#1f3a5f;border:2px solid #1f3a5f;padding:3px 10px;border-radius:12px;pointer-events:auto;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:6;}
+  #leg-badge{top:42px;left:50%;transform:translateX(-50%);background:#ffe066;color:#1f3a5f;border:2px solid #1f3a5f;font-size:13px;letter-spacing:.05em;padding:4px 8px;}
   #obj-modal{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:50;pointer-events:auto;padding:16px;}
   #obj-modal.show{display:flex;}
   #obj-note{position:relative;background:#fff9c4;color:#2b2b2b;max-width:360px;width:100%;max-height:90%;overflow:auto;border-radius:4px;padding:22px 20px 18px;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:rotate(-1.2deg);background-image:repeating-linear-gradient(180deg,transparent 0 25px,rgba(31,58,95,.13) 25px 26px);font-family:"Marker Felt","Chalkboard SE","Comic Sans MS",-apple-system,sans-serif;}
@@ -169,6 +170,7 @@
     </div>
 
     <div class="panel" id="score">SCORE 0</div>
+    <div class="panel" id="leg-badge" style="display:none">LEG 1/3</div>
 
 
     <button id="obj-btn">OBJECTIVES</button>
@@ -187,7 +189,7 @@
           <li>Plant as many flags on the RV as you can before it makes it to the Campground.</li>
         </ul>
         <div class="both">&#9981; Watch your <b>Fuel</b> level and <b>Health</b> in both modes!</div>
-        <div class="both" style="border-color:#1f3a5f;background:rgba(31,58,95,.08);">&#127937; A game is <b>3 legs</b>. Each leg ends when the RV reaches camp or a vehicle breaks down. After leg 3, the highest score wins &mdash; then both scores reset to zero.</div>
+        <div class="both" style="border-color:#1f3a5f;background:rgba(31,58,95,.08);">&#127937; A game is <b>3 legs</b>. Each leg ends when the RV reaches camp or a vehicle breaks down. Reaching camp = <b>next level</b> (new scene: Open Road &rarr; Desert &rarr; Corn Fields &rarr; City). A breakdown replays the same level. After leg 3, the highest score wins &mdash; then both scores reset to zero.</div>
         <div class="pts">
           <h2 style="font-size:20px;margin-bottom:4px;">&#11088; POINTS</h2>
           <h4>&#128656; RV Driver</h4>
@@ -827,12 +829,24 @@
   const SCENES = ["default", "desert", "cornfield", "city"];
   const SCENE_LABEL = { default: "Open Road", desert: "Desert", cornfield: "Indiana Corn Fields", city: "The City (watch for zombies!)" };
   function sceneForLeg(g, leg) { return SCENES[((g.sceneOffset || 0) + leg - 1) % SCENES.length]; }
+  // LEVELS (local games): each level has its own scene. You only move up a level by
+  // reaching camp — a breakdown replays the same scene. Progress carries into the next game.
+  const LEVEL_KEY = "rvfrenzy_level";
+  function sceneForLevel(level) { return SCENES[(Math.max(1, level) - 1) % SCENES.length]; }
+  function levelName(level) { return SCENE_LABEL[sceneForLevel(level)].replace(/ \(.*\)/, ""); }
   function rvScoreOf(g)    { return g.role === "rv" ? (g.score || 0) : (g.foeScore || 0); }
   function bikerScoreOf(g) { return g.role === "rv" ? (g.bikerScore || 0) : (g.score || 0); }
   function endLeg(g, reason) {
     g.cinematic = null;
     g.lastLegReason = reason;                     // "camp" | "breakdown"
-    if (reason === "camp") g.campsReached = (g.campsReached || 0) + 1;
+    if (reason === "camp") {
+      g.campsReached = (g.campsReached || 0) + 1;
+      if (!g.onlineMatch) {
+        // next level! after the City it loops back around to the Open Road
+        g.level = (g.level || 1) % SCENES.length + 1;
+        safeSet(LEVEL_KEY, String(g.level));
+      }
+    }
     g.legLog = g.legLog || [];
     g.legLog.push(reason);
     if ((g.roundCount || 1) >= MAX_LEGS) {
@@ -6754,7 +6768,7 @@
       g.foe._grannyFlying = null;
     }
     // rotate the scene for variety
-    g.scene = sceneForLeg(g, g.roundCount);
+    g.scene = g.onlineMatch ? sceneForLeg(g, g.roundCount) : sceneForLevel(g.level || 1);
     drawRoadside._items = [];
     flashMessage(g, "ROUND " + g.roundCount + " — KEEP DRIVING!");
   }
@@ -7031,11 +7045,19 @@
     document.getElementById("hp-bar").style.width = Math.max(0, Math.min(100, g.player.hp))+"%";
     // Top-center score readout — shows player score + biker score (in RV mode only)
     const scoreEl = document.getElementById("score");
-    const legTxt = g.onlineMatch ? "" : "LEG " + Math.min(MAX_LEGS, g.roundCount || 1) + "/" + MAX_LEGS + "  ·  ";
     if (g.role === "rv") {
-      scoreEl.textContent = legTxt + "RV " + g.score + "  /  BIKER " + (g.bikerScore || 0);
+      scoreEl.textContent = "RV " + g.score + "  /  BIKER " + (g.bikerScore || 0);
     } else {
-      scoreEl.textContent = legTxt + "BIKER " + g.score + "  /  RV " + (g.foeScore || 0);
+      scoreEl.textContent = "BIKER " + g.score + "  /  RV " + (g.foeScore || 0);
+    }
+    // separate "LEG 2/3" badge sitting just under the score bar (local games only)
+    const legEl = document.getElementById("leg-badge");
+    if (legEl) {
+      if (g.onlineMatch) legEl.style.display = "none";
+      else {
+        legEl.style.display = "";
+        legEl.textContent = "LEG " + Math.min(MAX_LEGS, g.roundCount || 1) + "/" + MAX_LEGS + "  ·  LEVEL " + (g.level || 1);
+      }
     }
 
     // map shows BOTH vehicles. RV is always in front, biker behind.
@@ -7313,14 +7335,14 @@
     } else if (state === STATE.ROUND_BREAK) {
       overlay.classList.remove("hidden");
       const nextRound = (game.roundCount || 1) + 1;
-      const nextScene = sceneForLeg(game, nextRound);
+      const nextScene = game.onlineMatch ? sceneForLeg(game, nextRound) : sceneForLevel(game.level || 1);
       const sceneLabel = SCENE_LABEL[nextScene] || "Open Road";
       const local = !game.onlineMatch;
       const isRvP = game.role === "rv";
       const why = game.lastLegReason === "breakdown"
         ? (isRvP ? "Your RV broke down" : "Your bike broke down") +
-          " — out of " + (game.player.fuel <= 0 ? "fuel" : "health") + "! That leg is over."
-        : (isRvP ? "You pulled into the campground!" : "The RV made it to the campground.");
+          " — out of " + (game.player.fuel <= 0 ? "fuel" : "health") + "! Same level again:"
+        : (isRvP ? "You pulled into the campground! LEVEL UP!" : "The RV made it to the campground. LEVEL UP!");
       overlay.innerHTML = `
         <div class="score-board">
           <div class="box biker">
@@ -7335,8 +7357,8 @@
           </div>
         </div>
         <h1>${local ? "LEG " + nextRound + " OF " + MAX_LEGS : "ROUND " + nextRound}</h1>
-        <p>${local ? why : "You pulled into the campground!"} Next leg: <b>${sceneLabel}</b>.</p>
-        <p>RV <b>${rvScoreOf(game).toLocaleString()}</b> &nbsp;·&nbsp; Biker <b>${bikerScoreOf(game).toLocaleString()}</b></p>
+        <p>${local ? why + " <b>LEVEL " + (game.level || 1) + " — " + sceneLabel + "</b>." : "You pulled into the campground! Next leg: <b>" + sceneLabel + "</b>."}</p>
+        <p>Score so far: <b>${game.score.toLocaleString()}</b></p>
         ${(game.online && game.role === "biker")
           ? '<p><b>Waiting for the RV driver to start the next round…</b></p>'
           : '<button class="start" id="next-round-btn">START ' + (local ? 'LEG ' : 'ROUND ') + nextRound + '</button>'}
@@ -7361,22 +7383,30 @@
       overlay.classList.remove("hidden");
       const rvS = rvScoreOf(game), bkS = bikerScoreOf(game);
       const winner = rvS >= bkS ? "RV DRIVER" : "BIKER";
-      const legRows = (game.legLog || []).map((r, i) =>
-        `<div>Leg ${i + 1}: ${r === "camp" ? "🏕️ made it to camp" : "💥 broke down"}</div>`).join("");
       overlay.innerHTML = `
-        <h1>${game._playerWon ? "YOU WIN!" : "YOU LOSE"}</h1>
-        <p><b>${winner}</b> takes the game after ${MAX_LEGS} legs.</p>
-        <div style="display:flex;gap:14px;justify-content:center;margin:10px 0;">
-          <div class="role ${rvS >= bkS ? "selected" : ""}" style="width:150px;cursor:default;"><div class="flag">🚐</div><h3>RV</h3><div style="font-size:24px;font-weight:800;">${rvS.toLocaleString()}</div></div>
-          <div class="role ${bkS > rvS ? "selected" : ""}" style="width:150px;cursor:default;"><div class="flag">🏍️</div><h3>BIKER</h3><div style="font-size:24px;font-weight:800;">${bkS.toLocaleString()}</div></div>
+        <div class="score-board">
+          <div class="box biker">
+            <div class="label">BIKER</div>
+            <div class="value" id="biker-best">0</div>
+            <div class="last" id="biker-last"></div>
+          </div>
+          <div class="box rv">
+            <div class="label">RV</div>
+            <div class="value" id="rv-best">0</div>
+            <div class="last" id="rv-last"></div>
+          </div>
         </div>
-        <div style="font-size:13px;line-height:1.6;">${legRows}</div>
-        <p class="small">Campgrounds reached: ${game.campsReached || 0} of ${MAX_LEGS}. Scores reset to zero for the next game.</p>
+        <h1>${game._playerWon ? "YOU WIN!" : "YOU LOSE"}</h1>
+        <p><b>LEG ${MAX_LEGS}/${MAX_LEGS}</b> complete &mdash; <b>${winner}</b> takes the game.</p>
+        <p>RV ${rvS.toLocaleString()} &nbsp;/&nbsp; BIKER ${bkS.toLocaleString()}</p>
+        <p>Final score: <b>${game.score.toLocaleString()}</b></p>
         <div class="roles">
           <div class="role ${game.role === "rv" ? "selected" : ""}" data-role="rv"><div class="flag">🏕️</div><h3>RV DRIVER</h3><div class="tag">Defender</div></div>
           <div class="role ${game.role === "rv" ? "" : "selected"}" data-role="biker"><div class="flag">🏁</div><h3>BIKER</h3><div class="tag">Attacker</div></div>
         </div>
-        <button class="start" id="start-btn">NEW GAME</button>`;
+        <button class="start" id="start-btn">NEW GAME</button>
+        <p class="small">Scores reset to zero for the next game. You'll start at <b>LEVEL ${game.level || 1} — ${levelName(game.level || 1)}</b>.</p>`;
+      refreshScoreboard();
       selectedRole = game.role;
       bindRoleCards();
       document.getElementById("start-btn").onclick = startGame;
@@ -7405,13 +7435,13 @@
     document.getElementById("overlay").classList.add("hidden");
     applyRoleUI(selectedRole);
     game = newGame(selectedRole);          // fresh game: RV and Biker scores both start at 0
-    game.sceneOffset = Math.floor(Math.random() * SCENES.length);
-    game.scene = sceneForLeg(game, 1);
+    game.level = Math.max(1, parseInt(safeGet(LEVEL_KEY) || "1", 10) || 1);   // pick up where you left off
+    game.scene = sceneForLevel(game.level);
     game.campsReached = 0;
     game.legLog = [];
     drawRoadside._items = [];   // reset scrolling scenery
     state = STATE.PLAY;
-    flashMessage(game, "LEG 1 OF " + MAX_LEGS + " — " + SCENE_LABEL[game.scene].replace(/ \(.*\)/, "").toUpperCase());
+    flashMessage(game, "LEVEL " + game.level + " — " + levelName(game.level).toUpperCase());
   }
   document.getElementById("start-btn").onclick = startGame;
 
