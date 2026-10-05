@@ -202,7 +202,7 @@
           <li>Plant as many flags on the RV as you can before it makes it to the Campground.</li>
         </ul>
         <div class="both">&#9981; Watch your <b>Fuel</b> level and <b>Health</b> in both modes!</div>
-        <div class="both" style="border-color:#1f3a5f;background:rgba(31,58,95,.08);">&#127937; You get <b>3 breakdowns</b> per game (out of fuel or health). Reaching camp = <b>next level</b> (new scene: Open Road &rarr; Desert &rarr; Corn Fields &rarr; City) and the game keeps going. A breakdown replays the same level. After the 3rd breakdown, the highest score wins &mdash; then both scores reset to zero.</div>
+        <div class="both" style="border-color:#1f3a5f;background:rgba(31,58,95,.08);">&#127937; You get <b>3 breakdowns</b> per game (out of fuel or health). Reaching camp = <b>next level</b> (new scene: Open Road &rarr; Desert &rarr; Corn Fields &rarr; City &rarr; Devils Tower) and the game keeps going. A breakdown replays the same level. After the 3rd breakdown, the highest score wins &mdash; then both scores reset to zero.</div>
         <div class="pts">
           <h2 style="font-size:20px;margin-bottom:4px;">&#11088; POINTS</h2>
           <h4>&#128656; RV Driver</h4>
@@ -230,6 +230,8 @@
           <table>
             <tr><td>Jump over an animal, cactus, cone, etc.</td><td class="v">+60</td></tr>
             <tr><td>Squish a Zombie (city)</td><td class="v">+40</td></tr>
+            <tr><td>Hit the flying saucer (Devils Tower)</td><td class="v">+20</td></tr>
+            <tr><td>Shoot the saucer down (20 hits)</td><td class="v">+200 each</td></tr>
             <tr><td>Run over a Fuel Pump</td><td class="v">+25</td></tr>
             <tr><td>Bowl over Grandpa's wheelchair</td><td class="v">+25</td></tr>
           </table>
@@ -666,6 +668,18 @@
       lose:      () => arp([523, 466, 415, 349, 262], 0.16, "triangle", 0.25),
       blip:      () => tone(660, 990, 0.1, "square", 0.12),
       scream:    () => grannyScream(),
+      // saucer arrives: wobbly sci-fi theremin
+      ufo:       () => {
+        const t = ac.currentTime, o = ac.createOscillator(), gn = ac.createGain();
+        const vib = ac.createOscillator(), va = ac.createGain();
+        o.type = "sine"; o.frequency.setValueAtTime(500, t); o.frequency.linearRampToValueAtTime(950, t + 0.7); o.frequency.linearRampToValueAtTime(600, t + 1.4);
+        vib.frequency.value = 7; va.gain.value = 40; vib.connect(va); va.connect(o.frequency);
+        gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.3, t + 0.1); gn.gain.setValueAtTime(0.3, t + 1.1); gn.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+        o.connect(gn); gn.connect(sfxBus); o.start(t); vib.start(t); o.stop(t + 1.55); vib.stop(t + 1.55);
+      },
+      zap:       () => { tone(1500, 260, 0.16, "square", 0.08); tone(2200, 500, 0.12, "sawtooth", 0.04); },
+      ufoHit:    () => { tone(980, 900, 0.1, "square", 0.12); noise(0.06, "highpass", 3000, 0.12); },
+      ufoCrash:  () => { tone(1400, 140, 1.1, "sine", 0.25); noise(0.9, "lowpass", 2200, 0.45, ac.currentTime + 0.5, 0, 90); },
       // RV lands on the bike: metal crunch + tire pop + air hiss + a big boing-squish
       squash:    () => {
         const t = ac.currentTime;
@@ -732,7 +746,11 @@
     // Pick a sound from the on-screen message so every game event gets audio.
     function onMessage(msg) {
       const m = String(msg || "").toUpperCase();
-      if (/SQUASHED/.test(m)) { sfx("squash"); say("OUCH!", { pitch: 0.55, rate: 0.75 }); }
+      if (/FLYING SAUCER/.test(m)) sfx("ufo");
+      else if (/SAUCER DOWN/.test(m)) sfx("ufoCrash");
+      else if (/SAUCER HIT/.test(m)) sfx("ufoHit");
+      else if (/ZAPPED/.test(m)) { sfx("zap"); sfx("hurt"); }
+      else if (/SQUASHED/.test(m)) { sfx("squash"); say("OUCH!", { pitch: 0.55, rate: 0.75 }); }
       else if (/FLAG PLANTED/.test(m)) sfx("fanfare");
       else if (/CRASH|CRUSHED|STOMP/.test(m)) sfx("crash");
       else if (/SUPER JUMP/.test(m)) sfx("superJump");
@@ -841,8 +859,8 @@
   // then both scores start back at zero.
   const MAX_BREAKDOWNS = 3;
   const MAX_LEGS = MAX_BREAKDOWNS;   // (old name, kept so nothing else breaks)
-  const SCENES = ["default", "desert", "cornfield", "city"];
-  const SCENE_LABEL = { default: "Open Road", desert: "Desert", cornfield: "Indiana Corn Fields", city: "The City (watch for zombies!)" };
+  const SCENES = ["default", "desert", "cornfield", "city", "tower"];
+  const SCENE_LABEL = { default: "Open Road", desert: "Desert", cornfield: "Indiana Corn Fields", city: "The City (watch for zombies!)", tower: "Devils Tower (watch the skies!)" };
   function sceneForLeg(g, leg) { return SCENES[((g.sceneOffset || 0) + leg - 1) % SCENES.length]; }
   // LEVELS (local games): each level has its own scene. You only move up a level by
   // reaching camp — a breakdown replays the same scene. Progress carries into the next game.
@@ -933,8 +951,13 @@
   function drawSky() {
     const desert = (game && game.scene === "desert");
     const corn   = (game && game.scene === "cornfield");
+    const towerSky = (game && game.scene === "tower");
     const g = ctx.createLinearGradient(0,0,0,H*0.75);
-    if (desert) {
+    if (towerSky) {
+      g.addColorStop(0, "#3b4a8c");
+      g.addColorStop(0.5, "#c98a8a");
+      g.addColorStop(1, "#ffd59a");
+    } else if (desert) {
       g.addColorStop(0, "#fdb27e");
       g.addColorStop(0.45, "#ffd29a");
       g.addColorStop(1, "#fff5d2");
@@ -1187,6 +1210,62 @@
     const desert = (game && game.scene === "desert");
     const corn   = (game && game.scene === "cornfield");
     const city   = (game && game.scene === "city");
+
+    // DEVILS TOWER scene — rolling Wyoming prairie, pine forest, and the giant
+    // flat-topped rock tower with its vertical columns.
+    if (game && game.scene === "tower") {
+      // far blue ridges
+      ctx.fillStyle = "#7d7fa8";
+      ctx.beginPath(); ctx.moveTo(0, H*0.62);
+      for (let x = 0; x <= W + 40; x += 30) ctx.lineTo(x, H*0.58 - 16*Math.sin((x + off*0.05)/170) - 8*Math.sin((x + off*0.04)/70));
+      ctx.lineTo(W, H*0.7); ctx.lineTo(0, H*0.7); ctx.closePath(); ctx.fill();
+      // the tower drifts by very slowly and comes around again
+      const period = W + 900;
+      const tx = W*0.7 - ((off*0.035) % period);
+      for (const cx of [tx, tx + period]) {
+        if (cx < -300 || cx > W + 300) continue;
+        const baseY = H*0.66, topY = H*0.66 - Math.min(230, H*0.36);
+        const baseHalf = 92, topHalf = 54;
+        // talus / rubble slope at the bottom
+        ctx.fillStyle = "#8b8a74";
+        ctx.beginPath(); ctx.moveTo(cx - 190, baseY + 6); ctx.quadraticCurveTo(cx - 110, baseY - 50, cx - baseHalf, baseY - 40);
+        ctx.lineTo(cx + baseHalf, baseY - 40); ctx.quadraticCurveTo(cx + 110, baseY - 50, cx + 190, baseY + 6); ctx.closePath(); ctx.fill();
+        // main column body
+        const tg = ctx.createLinearGradient(cx - baseHalf, 0, cx + baseHalf, 0);
+        tg.addColorStop(0, "#c9a27a"); tg.addColorStop(0.55, "#a8805c"); tg.addColorStop(1, "#6f5038");
+        ctx.fillStyle = tg;
+        ctx.beginPath();
+        ctx.moveTo(cx - baseHalf, baseY - 38);
+        ctx.quadraticCurveTo(cx - baseHalf + 14, (baseY + topY)/2, cx - topHalf, topY + 6);
+        ctx.lineTo(cx - topHalf + 8, topY); ctx.lineTo(cx + topHalf - 6, topY + 2); ctx.lineTo(cx + topHalf, topY + 8);
+        ctx.quadraticCurveTo(cx + baseHalf - 14, (baseY + topY)/2, cx + baseHalf, baseY - 38);
+        ctx.closePath(); ctx.fill();
+        // vertical column striations
+        ctx.strokeStyle = "rgba(70,45,25,.45)"; ctx.lineWidth = 1.2;
+        for (let i = -6; i <= 6; i++) {
+          const fx = i / 6.5;
+          ctx.beginPath();
+          ctx.moveTo(cx + fx * topHalf, topY + 6);
+          ctx.quadraticCurveTo(cx + fx * (topHalf + 12), (baseY + topY)/2, cx + fx * baseHalf, baseY - 38);
+          ctx.stroke();
+        }
+        // flat-top cap shading
+        ctx.fillStyle = "rgba(255,230,190,.35)";
+        ctx.fillRect(cx - topHalf + 8, topY, topHalf * 2 - 14, 4);
+        // pine forest skirt around the base
+        ctx.fillStyle = "#2f5a32";
+        for (let k = -9; k <= 9; k++) {
+          const px = cx + k * 21, py = baseY - 4 + Math.abs(k) * 0.6;
+          ctx.beginPath(); ctx.moveTo(px, py - 26 + (k % 2) * 6); ctx.lineTo(px - 9, py); ctx.lineTo(px + 9, py); ctx.closePath(); ctx.fill();
+        }
+      }
+      // near prairie rise
+      ctx.fillStyle = "#9aa65c";
+      ctx.beginPath(); ctx.moveTo(0, H*0.68);
+      for (let x = 0; x <= W + 40; x += 24) ctx.lineTo(x, H*0.67 - 6*Math.sin((x + off*0.22)/90));
+      ctx.lineTo(W, H*0.72); ctx.lineTo(0, H*0.72); ctx.closePath(); ctx.fill();
+      return;
+    }
 
     // CITY scene — skyline of buildings on the horizon. Two layers for parallax.
     if (city) {
@@ -1505,6 +1584,10 @@
       // dirty grey concrete sidewalk
       grad.addColorStop(0, "#8a8a8a");
       grad.addColorStop(1, "#555a60");
+    } else if (game && game.scene === "tower") {
+      // Wyoming prairie grass
+      grad.addColorStop(0, "#b7b866");
+      grad.addColorStop(1, "#6f7f3a");
     } else {
       grad.addColorStop(0, "#86c386");
       grad.addColorStop(1, "#4a8a4a");
@@ -4117,6 +4200,9 @@
       } else if (scene === "city") {
         // Round 4 — zombies on the street, with the occasional cone
         o.kind = r < 0.85 ? "zombie" : "cone";
+      } else if (scene === "tower") {
+        // Level 5 — Wyoming wildlife
+        o.kind = r < 0.6 ? "deer" : (r < 0.88 ? "bear" : "cone");
       } else {
         o.kind = r < 0.62 ? "moose" : (r < 0.89 ? "cactus" : "cone");
       }
@@ -6304,6 +6390,7 @@
         });
         p.fireCD = 0.22;
         p._lastFireT = performance.now();
+        aimAtUFO(g, g.bullets[g.bullets.length - 1], "me");
         netSend({ type: "fire", tp: isTP });
         audio.sfx(isTP ? "tp" : "poop");
         if (isTP) flashMessage(g, "TP ROLL!");
@@ -6316,7 +6403,7 @@
       // biker mode: PLANT button — instant plant if in range (no hold timer)
       // Cannot plant while the AI RV is airborne (jumping over you).
       const rvAirborne = (g.foe.y || 0) < -1 || g.foe._superJump;
-      if (input.fireDown && g.foe.gap < 175 && !g.cinematic && !rvAirborne) {
+      if (input.fireDown && g.foe.gap < 175 && !g.cinematic && !rvAirborne && !ufoActive(g)) {
         startPlantCinematic(g);
         if (g.online) { g.gapBonus = (g.gapBonus || 0) + 560; netSend({ type: "plant", flag: g.foe._flagType }); }
       } else if (input.fireDown && rvAirborne && g.foe.gap < 175 && !g.cinematic) {
@@ -6334,6 +6421,7 @@
           spin: 0,
         });
         p._wrenchCD = 0.55;
+        aimAtUFO(g, g.bullets[g.bullets.length - 1], "me");
         netSend({ type: "fire", wrench: true });
         audio.sfx("wrench");
       }
@@ -6352,6 +6440,7 @@
     const f = g.foe;
     f.hitFlash = Math.max(0, f.hitFlash - dt);
     if (g.online) { updateRemoteFoe(g, dt); return; }
+    if (ufoActive(g)) { aiTruce(g, dt); return; }
 
     if (g.role === "rv") {
       // AI biker chasing the player RV (gap = how far behind)
@@ -6506,6 +6595,17 @@
   function updateBullets(g, dt) {
     // Player bullets (RV mode → leftward at biker;  Biker mode → rightward at AI RV)
     for (const b of g.bullets) {
+      if (b.ufo) {
+        b.x += b.vx * dt; b.yOff += b.vy * dt; b.life -= dt;
+        if (b.wrench) b.spin = (b.spin || 0) + dt * 14;
+        const u = g.ufo;
+        if (u && ufoActive(g) && b.life > 0) {
+          const by = H * 0.86 - 24 + b.yOff;
+          if (Math.abs(b.x - u.x) < 48 && Math.abs(by - u.y) < 18) { b.life = 0; ufoHit(g, b.owner || "me"); }
+        }
+        if (H * 0.86 - 24 + b.yOff < -40) b.life = 0;
+        continue;
+      }
       b.x += b.vx * dt;
       b.life -= dt;
       if (b.wrench) b.spin = (b.spin || 0) + dt * 14;
@@ -6860,6 +6960,265 @@
     return g._flagCycle;
   }
 
+
+  // ========================================================================
+  // LEVEL 5: FLYING SAUCER over Devils Tower.
+  // A grey saucer shows up and zaps BOTH the RV and the biker at random.
+  // While it's flying, the RV and the biker call a truce and shoot at IT:
+  // Granny's poop and the biker's wrenches auto-aim at the saucer. 20 hits and
+  // it crashes; a little green alien crawls out and, with his last breath,
+  // says "phone home".
+  // ========================================================================
+  const UFO_HP = 20;
+  function ufoActive(g) { return !!(g && g.ufo && (g.ufo.state === "arrive" || g.ufo.state === "fight")); }
+  function aimAtUFO(g, b, owner) {
+    if (!ufoActive(g) || !b) return b;
+    const u = g.ufo;
+    const sy = H * 0.86 - 24 + (b.yOff || 0);
+    const dx = u.x - b.x, dy = (u.y + 4) - sy, d = Math.max(1, Math.hypot(dx, dy));
+    const sp = 560;
+    b.ufo = true; b.owner = owner || "me";
+    b.vx = dx / d * sp; b.vy = dy / d * sp; b.ay = 0;
+    b.life = 1.6;
+    return b;
+  }
+  function spawnShotAtUFO(g, fromX, yOff, kind, owner) {
+    const b = { x: fromX, yOff, r: kind === "wrench" ? 6 : 7, life: 1.6, fromFoe: false,
+                wrench: kind === "wrench", poop: kind === "poop", tp: kind === "tp", spin: 0 };
+    // AI / other player isn't a perfect shot
+    aimAtUFO(g, b, owner);
+    if (owner === "foe") { b.vx += (Math.random() - 0.5) * 120; b.vy += (Math.random() - 0.5) * 120; }
+    g.bullets.push(b);
+  }
+  function addPoints(g, who, pts) {
+    // who: "me" = this player, "foe" = the other side
+    if (who === "me") g.score = (g.score || 0) + pts;
+    else if (g.role === "rv") g.bikerScore = (g.bikerScore || 0) + pts;
+    else g.foeScore = (g.foeScore || 0) + pts;
+  }
+  function ufoHit(g, owner) {
+    const u = g.ufo; if (!ufoActive(g)) return;
+    u.hp -= 1; u.hitFlash = 0.15;
+    addPoints(g, owner, 20);
+    g.shake = Math.max(g.shake, 3);
+    if (u.hp <= 0) {
+      u.state = "crash"; u.t = 0; u.vx = -40; u.vy = -60; u.rot = 0;
+      addPoints(g, "me", 200); addPoints(g, "foe", 200);
+      g.shake = Math.max(g.shake, 16);
+      flashMessage(g, "SAUCER DOWN!  +200 EACH");
+    } else {
+      flashMessage(g, "SAUCER HIT!  " + u.hp + " TO GO");
+    }
+  }
+  function updateUFO(g, dt) {
+    g.ufoBolts = g.ufoBolts || [];
+    if (g.scene === "tower" && !g.ufo && !g._ufoDone) {
+      g._ufoTimer = (g._ufoTimer || 0) + dt;
+      if (g._ufoTimer > 4) {
+        g.ufo = { x: W + 90, y: H * 0.26, hp: UFO_HP, state: "arrive", t: 0, cd: 2.2, rot: 0, hitFlash: 0 };
+        flashMessage(g, "FLYING SAUCER!  TRUCE — SHOOT IT DOWN!");
+      }
+    }
+    const u = g.ufo;
+    if (u) {
+      u.t += dt; u.hitFlash = Math.max(0, u.hitFlash - dt);
+      if (u.state === "arrive") {
+        u.x += (W * 0.55 - u.x) * Math.min(1, dt * 1.6);
+        u.y = H * 0.26 + Math.sin(u.t * 2) * 6;
+        if (Math.abs(u.x - W * 0.55) < 8) { u.state = "fight"; u.t = 0; }
+      } else if (u.state === "fight") {
+        u.x = W * 0.52 + Math.sin(u.t * 0.55) * W * 0.24;
+        u.y = H * 0.25 + Math.sin(u.t * 2.1) * 10;
+        u.cd -= dt;
+        if (u.cd <= 0) {
+          // zap someone at random — and only sometimes on target
+          const atMe = Math.random() < 0.5;
+          const tx = (atMe ? PLAYER_X() : foeWorldX(g)) + (Math.random() - 0.5) * 200;
+          const ty = H * 0.86 - 40;
+          const dx = tx - u.x, dy = ty - (u.y + 10), d = Math.max(1, Math.hypot(dx, dy));
+          g.ufoBolts.push({ x: u.x, y: u.y + 10, vx: dx / d * 430, vy: dy / d * 430, target: atMe ? "me" : "foe" });
+          u.cd = 0.8 + Math.random() * 0.9;
+          audio.sfx("zap");
+        }
+      } else if (u.state === "crash") {
+        u.vy += 420 * dt;
+        u.x += (u.vx + 120 - g.player.speed * 60 * 0.3) * dt;   // tumbles forward, ahead of the vehicles
+        u.y += u.vy * dt;
+        u.rot += 5 * dt;
+        g.debris = g.debris || [];
+        if (Math.random() < dt * 30) g.debris.push({ x: u.x + (Math.random() - 0.5) * 30, y: u.y, vx: -60, vy: -40, vrot: 3, rot: 0, life: 0.8, kind: "panel" });
+        if (u.y >= H * 0.82) {
+          u.state = "down"; u.t = 0; u.y = H * 0.82; u.rot = 0.25;
+          u.x = Math.max(u.x, W * 0.8);
+          g.shake = Math.max(g.shake, 20);
+          audio.sfx("crash");
+          g.alien = { x: u.x + 40, t: 0, said: false };
+        }
+      } else if (u.state === "down") {
+        u.x -= g.player.speed * 60 * 0.5 * dt;      // wreck on the far shoulder, drifting slowly by
+        if (u.x < -260) { g.ufo = null; g._ufoDone = true; }
+      }
+    }
+    // the little green alien's last moments
+    const a = g.alien;
+    if (a) {
+      a.t += dt;
+      a.x -= g.player.speed * 60 * 0.5 * dt;
+      if (!a.said && a.t > 0.7) { a.said = true; audio.say("phone home", { pitch: 0.5, rate: 0.55 }); }
+      if (a.x < -120) g.alien = null;
+    }
+    if (u && u.state === "down" && u.t === 0) { /* noop */ }
+    // saucer zap bolts
+    for (const b of g.ufoBolts) {
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.y >= H * 0.86 - 60 && !b.done) {
+        if (b.target === "me" && Math.abs(b.x - PLAYER_X()) < 55) {
+          b.done = true;
+          g.player.hp -= 6; g.player.hitFlash = 0.3; g.shake = Math.max(g.shake, 8);
+          flashMessage(g, "ZAPPED BY THE SAUCER!  -6 HP");
+        } else if (b.target === "foe" && Math.abs(b.x - foeWorldX(g)) < 55) {
+          b.done = true;
+          g.foe.hitFlash = 0.3;
+        }
+      }
+    }
+    g.ufoBolts = g.ufoBolts.filter(b => !b.done && b.y < H * 0.92 && b.x > -40 && b.x < W + 40);
+    // was it a truce? announce when it's over
+    const truce = ufoActive(g);
+    if (g._wasTruce && !truce) flashMessage(g, "TRUCE OVER — BACK TO THE CHASE!");
+    g._wasTruce = truce;
+  }
+  // AI behaviour while the saucer is up: hang back, no attacks on the player, shoot the saucer
+  function aiTruce(g, dt) {
+    const f = g.foe;
+    const want = g.role === "rv" ? 300 : 280;
+    f.gap += (want - f.gap) * Math.min(1, dt * 0.8);
+    f.vy = (f.vy || 0) + 1400 * dt; f.y = (f.y || 0) + f.vy * dt;
+    if (f.y > 0) { f.y = 0; f.vy = 0; f.onGround = true; f._superJump = false; }
+    f._ufoCD = (f._ufoCD == null ? 1.2 : f._ufoCD - dt);
+    if (f._ufoCD <= 0) {
+      const fx = foeWorldX(g);
+      if (g.role === "rv") spawnShotAtUFO(g, fx + 18, -42, "wrench", "foe");      // AI biker throws wrenches
+      else { spawnShotAtUFO(g, fx - 90, -88, Math.random() < 0.3 ? "tp" : "poop", "foe"); f._lastFireT = performance.now(); }
+      f._ufoCD = 1.0 + Math.random() * 0.8;
+    }
+    // biker mode: the AI RV can still reach camp during the truce
+    if (g.role === "biker" && g.distance + f.gap >= g.goal && state === STATE.PLAY) {
+      g.score = (g.score || 0) + Math.round((g.player.hp || 0) * 2);
+      if (g.onlineMatch) state = STATE.ROUND_BREAK; else endLeg(g, "camp");
+    }
+  }
+  function drawUFO(u) {
+    ctx.save();
+    ctx.translate(u.x, u.y);
+    ctx.rotate(u.rot || 0);
+    // underside glow while flying
+    if (u.state === "arrive" || u.state === "fight") {
+      const gl = ctx.createRadialGradient(0, 14, 2, 0, 14, 40);
+      gl.addColorStop(0, "rgba(140,255,160,.55)"); gl.addColorStop(1, "rgba(140,255,160,0)");
+      ctx.fillStyle = gl; ctx.beginPath(); ctx.ellipse(0, 16, 40, 14, 0, 0, Math.PI*2); ctx.fill();
+    }
+    // glass dome with a little green pilot inside
+    ctx.fillStyle = "rgba(170,220,255,.75)";
+    ctx.beginPath(); ctx.ellipse(0, -8, 20, 16, 0, Math.PI, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = "#7ed957";
+    ctx.beginPath(); ctx.ellipse(0, -13, 6, 7, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#111";
+    ctx.beginPath(); ctx.ellipse(-2.4, -13, 1.6, 2.6, -0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(2.4, -13, 1.6, 2.6, 0.4, 0, Math.PI*2); ctx.fill();
+    // metal saucer body
+    const mg = ctx.createLinearGradient(0, -12, 0, 12);
+    mg.addColorStop(0, "#e6e8ec"); mg.addColorStop(0.5, "#9aa0a8"); mg.addColorStop(1, "#5c626b");
+    ctx.fillStyle = mg;
+    ctx.beginPath(); ctx.ellipse(0, 0, 48, 12, 0, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "#3e434a"; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = "#6b7079";
+    ctx.beginPath(); ctx.ellipse(0, 3, 40, 5, 0, 0, Math.PI*2); ctx.fill();
+    // blinking rim lights
+    const blink = Math.floor(performance.now() / 160);
+    for (let i = 0; i < 8; i++) {
+      const lx = -36 + i * 10.3;
+      ctx.fillStyle = (i + blink) % 3 === 0 ? "#ff5050" : (i + blink) % 3 === 1 ? "#ffe066" : "#7dff8a";
+      ctx.beginPath(); ctx.arc(lx, 1, 2, 0, Math.PI*2); ctx.fill();
+    }
+    // damage: smoke + sparks as it gets beat up
+    if ((u.hp || 0) < 14 || u.state === "crash" || u.state === "down") {
+      ctx.fillStyle = "rgba(60,60,60,.45)";
+      const t = performance.now() / 180;
+      for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(14 + k * 9, -10 - k * 7 + Math.sin(t + k) * 2, 4 + k * 1.5, 0, Math.PI*2); ctx.fill(); }
+    }
+    if ((u.hp || 0) < 7 && u.state === "fight" && Math.random() < 0.5) {
+      ctx.fillStyle = "#ffd84a"; ctx.beginPath(); ctx.arc(-20 + Math.random() * 40, 4, 1.6, 0, Math.PI*2); ctx.fill();
+    }
+    if (u.hitFlash > 0) { ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.beginPath(); ctx.ellipse(0, 0, 48, 12, 0, 0, Math.PI*2); ctx.fill(); }
+    ctx.restore();
+    // health pips under the saucer while fighting
+    if (u.state === "fight" || u.state === "arrive") {
+      const w = 60, x0 = u.x - w / 2, y0 = u.y + 24;
+      ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(x0 - 1, y0 - 1, w + 2, 6);
+      ctx.fillStyle = "#7dff8a"; ctx.fillRect(x0, y0, w * Math.max(0, u.hp) / UFO_HP, 4);
+    }
+  }
+  // generic little green alien (big head, black almond eyes) lying by the wreck
+  function drawAlien(a) {
+    const gy = H * 0.86 + 6, x = a.x;
+    const crawl = Math.min(1, a.t / 0.8);            // slides out of the wreck
+    const dead = a.t > 3.6;
+    ctx.save();
+    ctx.translate(x - (1 - crawl) * 30, gy);
+    ctx.scale(1.5, 1.5);
+    // body lying on the ground
+    ctx.fillStyle = "#7ed957"; ctx.strokeStyle = "#3f7a2a"; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.ellipse(10, -5, 14, 5, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // legs
+    ctx.strokeStyle = "#6cc447"; ctx.lineWidth = 2.5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(22, -5); ctx.lineTo(34, -3); ctx.moveTo(22, -3); ctx.lineTo(33, 0); ctx.stroke();
+    // arm — reaches up while he talks, flops down after
+    const talking = a.t > 0.7 && !dead;
+    ctx.beginPath(); ctx.moveTo(4, -8);
+    if (talking) ctx.lineTo(2, -24 - Math.sin(a.t * 3) * 2); else ctx.lineTo(-4, -2);
+    ctx.stroke(); ctx.lineCap = "butt";
+    // head
+    ctx.fillStyle = "#8ee86a"; ctx.strokeStyle = "#3f7a2a";
+    ctx.beginPath(); ctx.ellipse(-8, -9, 9, 8, -0.3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // eyes (X X once he's gone)
+    if (dead) {
+      ctx.strokeStyle = "#111"; ctx.lineWidth = 1.2;
+      for (const ex of [-11, -5]) { ctx.beginPath(); ctx.moveTo(ex - 2, -12); ctx.lineTo(ex + 2, -8); ctx.moveTo(ex + 2, -12); ctx.lineTo(ex - 2, -8); ctx.stroke(); }
+    } else {
+      ctx.fillStyle = "#111";
+      ctx.beginPath(); ctx.ellipse(-11, -10, 2.2, 3.4, -0.5, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-5, -10.5, 2.2, 3.4, 0.2, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+    // speech bubble with his last words
+    if (a.t > 0.7 && a.t < 3.6) {
+      const bx = x + 6, by = gy - 52;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (3.6 - a.t) / 0.4);
+      ctx.fillStyle = "#fff"; ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
+      roundRect(bx - 58, by - 15, 116, 26, 12); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx - 14, by + 11); ctx.lineTo(bx - 20, by + 24); ctx.lineTo(bx - 4, by + 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#fff"; ctx.fillRect(bx - 15, by + 9, 12, 3);
+      ctx.fillStyle = "#2a7a1a"; ctx.font = "italic bold 14px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("phone home…", bx, by + 3);
+      ctx.textAlign = "left";
+      ctx.restore();
+    }
+  }
+  function drawUFOScene(g) {
+    for (const b of (g.ufoBolts || [])) {
+      ctx.strokeStyle = "rgba(120,255,140,.9)"; ctx.lineWidth = 3; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.04, b.y - b.vy * 0.04); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.025, b.y - b.vy * 0.025); ctx.stroke();
+      ctx.lineCap = "butt";
+    }
+    if (g.ufo) drawUFO(g.ufo);
+    if (g.alien) drawAlien(g.alien);
+  }
+
   // ---------- plant cinematic (multi-round) ----------
   // 1) impact: biker collides with RV
   // 2) jump_on_rv: biker character launches off bike up onto RV roof near ladder
@@ -6897,6 +7256,7 @@
     }
     g._grannyPickupOnRoad = false;
     g.gapBonus = 0;
+    g.ufo = null; g.alien = null; g.ufoBolts = []; g._ufoDone = false; g._ufoTimer = 0; g._wasTruce = false;
     // respawn the foe far behind / ahead
     if (g.role === "rv") {
       g.foe.gap = 700;
@@ -7264,6 +7624,7 @@
         updateFoe(game, dt);
         updateHazards(game, dt);
         updateBullets(game, dt);
+        updateUFO(game, dt);
         updateDebris(game, dt);
         game.shake *= 0.85;
         if (game.messageT > 0) game.messageT -= dt;
@@ -7291,6 +7652,8 @@
       updateHUD(game);
     }
     if (game) audio.update(game, state);
+    const hudScores = document.getElementById("hud-scores");
+    if (hudScores) hudScores.style.display = (state === STATE.PLAY) ? "" : "none";
 
     // ---- draw ----
     ctx.save();
@@ -7401,6 +7764,7 @@
       }
       for (const b of game.bullets) drawBullet(b);
       for (const b of game.foeBullets) drawBullet(b);
+      drawUFOScene(game);
       drawDebris(game);
 
       // floating message
@@ -7523,6 +7887,13 @@
           : '<button class="start" id="next-round-btn">' + (local ? (game.lastLegReason === "breakdown" ? "TRY AGAIN" : "KEEP DRIVING") : "START ROUND " + nextRound) + '</button>'}
         <p class="small">RV partially refueled and patched up. Same biker, fresh chase.</p>`;
       refreshScoreboard();
+      // mid-game: the corner boxes show this game's running tally (not the all-time best)
+      { const bb = document.getElementById("biker-best"), rb = document.getElementById("rv-best");
+        const bl = document.getElementById("biker-last"), rl = document.getElementById("rv-last");
+        if (bb) bb.textContent = bikerScoreOf(game).toLocaleString();
+        if (rb) rb.textContent = rvScoreOf(game).toLocaleString();
+        if (bl) bl.textContent = game.role === "biker" ? "YOU" : "";
+        if (rl) rl.textContent = game.role === "rv" ? "YOU" : ""; }
       const nrb = document.getElementById("next-round-btn");
       if (nrb) nrb.onclick = () => {
         overlay.classList.add("hidden");
@@ -7842,6 +8213,12 @@
   // The other player fired — launch the matching projectile toward me.
   function spawnRemoteShot(g, msg) {
     const f = g.foe;
+    if (ufoActive(g)) {
+      const fx = foeWorldX(g);
+      if (msg.wrench) spawnShotAtUFO(g, fx + 18, -42, "wrench", "foe");
+      else { spawnShotAtUFO(g, fx - 90, -88, msg.tp ? "tp" : "poop", "foe"); f._lastFireT = performance.now(); }
+      return;
+    }
     if (g.role === "rv" && msg.wrench) {
       const dist = Math.max(70, f.gap - 60);
       const tof  = Math.min(1.1, dist / 420);
